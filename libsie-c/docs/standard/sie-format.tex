@@ -1,0 +1,1141 @@
+%%%% This is -*- mode: latex; mode: flyspell -*-
+
+\documentclass{article}
+
+%% \usepackage[english]{babel}
+%% \usepackage[latin1]{inputenc}
+%% \usepackage[T1]{fontenc}
+
+\usepackage[urw-garamond]{mathdesign}
+%\renewcommand{\ttdefault}{cmtt}
+%\usepackage{newcent}
+%\usepackage{mathpazo}
+
+\setcounter{secnumdepth}{5}
+\setcounter{tocdepth}{5}
+
+\input{common.tex}
+
+\usepackage{multicol}
+
+\newcommand{\siever}{1.0}
+
+\title{The SIE Format}
+
+\author{
+Brian Downing \\ HBM, Inc. \and
+Chris LaReau \\ HBM, Inc.
+}
+
+\date{December, 2009}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+  SIE is a new data transmission and storage format for engineering
+  data.  SIE is designed to be flexible, self-describing, streamable,
+  and robust, overcoming some of the limitations of existing
+  engineering data formats.  This is accomplished with a simple block
+  structure and an XML description of how to read both the block
+  structure and contained binary data.  It is also very simple to
+  write, as some data loggers have very limited processor and memory
+  capacity.  SIE has been successfully implemented on SoMat's eDAQ
+  line of data acquisition systems, and a library for reading SIE
+  files has been implemented in portable C.
+\end{abstract}
+
+\tableofcontents
+
+\section{Introduction}
+
+\subsection{Requirements}
+
+Many of the requirements of a data format are dictated by the end-user
+of the format --- those who read it.  For instance, at the time of
+this writing, an 32 gigabyte CompactFlash card is available for
+around US\$80.00, and the trend of increasing capacity and decreasing
+price continues at an impressive rate.  Putting 16 or more
+gigabytes of storage into a small data acquisition system is going to
+be increasingly common.  Users of data acquisition systems and other
+producers of engineering data want to be able to use all of this
+space.
+
+For situations involving long term testing, it is desired to be able
+to read some or all of the data while testing is in progress.  In other
+words, data stored in a file should be readable while the file is still
+being written to.
+
+As more information enters the digital world, it is becoming more
+realistic to want many kinds of information associated with
+engineering data.  A data format should be flexible enough to be able
+to store arbitrary text, pictures, audio, video, and other information
+not yet conceived.
+
+Finally, and most importantly, nobody wants to lose data they've
+collected.  Testing is very expensive, and hard or impossible to
+repeat.  Any data storage format needs to be as robust as possible to
+reduce the frequency of problems, and to make recovering data as easy
+as possible when catastrophe occurs.
+
+Additionally, some requirements are driven by implementers of hardware
+and software that writes engineering data.  When collecting data, it
+usually comes packed in some specific binary format.  An ideal data
+format would offer flexible binary storage options so that the
+incoming data could be directly written out, or at the very least with
+minimum changes.
+
+Also with the above, a good format should allow the details of the
+binary data stored to be changed, without changing the engineering
+values represented, and without requiring modifications to the reading
+software.
+
+Finally, the format should be very easy to write.  Ideally, it should
+be feasible to write the format on microcontrollers with only
+kilobytes of RAM.
+
+\subsection{Problems with existing formats}
+
+One of the primary reasons for creating a new data format is the
+presence of many problems in existing formats.  Almost all existing
+engineering formats have certain undesirable traits.
+
+For instance, most existing engineering data formats are not
+\emph{streamable} --- that is, they require random access to write and
+read, usually because they have forward-pointing intra-file
+references.  This limits the ability to send data in real time across
+a network.  Also, the presence of forward pointers makes a file format
+more complicated and error-prone.  If a file is corrupted and key
+linking information is destroyed, it can be difficult or impossible to
+recover otherwise unaffected data.
+
+In some cases, files may not be in a consistent, readable state
+until writing has stopped, either due to missing forward-pointing
+offsets or other design issues.  This is particularly awkward for a
+data acquisition system, as it is desirable to be able to fetch or
+monitor data while acquisition is in progress.
+
+In addition, many engineering data formats use 32-bit offsets
+internally.  This limits files to no more than $2^{31}-1$ or $2^{32}$
+bytes, depending on whether the offsets are interpreted as signed or
+unsigned.  This has become a constraint as small, cheap flash devices
+larger than four gigabytes have become available.
+
+Finally, many existing data formats have limited metadata
+representations.  Some have only fixed-field metadata; they may have
+fields like channel name and sample rate, but no way to add other
+pieces of metadata.  Other formats have an extensible metadata format
+but do not use it pervasively or consistently.
+
+\subsection{Design goals}
+
+The following outline describes the major design goals for SIE:
+
+\begin{itemize}
+\item Flexible
+  \begin{itemize}
+  \item It should be possible to encode a wide variety of internal
+    data formats without needing to extend the SIE specification.
+  \end{itemize}
+\item Conceptually simple and self-describing
+  \begin{itemize}
+  \item It should be possible to look at an SIE file and write code
+    to extract data from it.
+  \item Explicit data model - no implicit knowledge.
+  \end{itemize}
+\item No arbitrary limits:
+  \begin{itemize}
+  \item File size.
+  \item Data formats.
+  \item Metadata size, format, or language.
+  \end{itemize}
+\end{itemize}
+
+\begin{itemize}
+\item Streamable
+  \begin{itemize}
+  \item No forward data pointers.
+  \item Append-only file writing.
+  \end{itemize}
+\item Safe
+  \begin{itemize}
+  \item Transmission or storage error detection.
+  \item Maximal recoverability in case of corruption.
+  \end{itemize}
+\item Efficient
+  \begin{itemize}
+  \item Size:  minimal overhead as a percentage of data size for
+    real-world examples.
+  \item Processing:  should be possible to store data in native
+    transducer format.
+  \end{itemize}
+\end{itemize}
+
+\section{Design}
+
+At its core, SIE is a block-structured container for data.  It defines
+an XML \cite{xml} schema for describing both the structure of the data
+and their associated metadata.  It also defines an optional index
+format to speed up file access.
+
+\subsection{Data model}
+\label{data-model-sec}
+
+SIE presents a flexible, unified data model to the end user.  Data are
+presented as a table of rows and columns.  For example, a time series
+channel could be represented as the following:
+
+\begin{center}
+  \begin{tabular}{r|r@{.}lr@{.}l}
+    & \multicolumn{2}{l}{\textbf{Dimension 0}} & 
+      \multicolumn{2}{l}{\textbf{Dimension 1}} \\ \hline
+    \textbf{Row 0} & 0&0 &  0&42 \\
+    \textbf{Row 1} & 0&1 & -0&20 \\
+    \textbf{Row 2} & 0&2 &  0&13 \\
+    \textbf{Row 3} & 0&3 &  0&06 \\
+    \textbf{Row 4} & 0&4 & -0&23 \\
+    $\cdots$ & \multicolumn{2}{l}{$\cdots$} & \multicolumn{2}{l}{$\cdots$}
+  \end{tabular}
+\end{center}
+
+A dimension (column) may contain either numerical values or ``raw''
+binary data.
+
+The metadata for this example would contain additional information,
+such as the fact that dimension 0 is \emph{time} and the applicable
+unit is \emph{seconds}, while dimension 1 is the actual data
+measurement, for which the unit is \emph{millivolts}.
+
+Ultimately, all SIE data are presented in this basic form.  It is
+notable that, if given an SIE file with completely unknown data, all
+of the data values will be immediately visible even if the details of
+the intended representation are unknown.
+
+Metadata are represented as \emph{tags}, which are pairings of a
+textual name to arbitrary binary data.  Tags can exist an any level of
+the SIE hierarchy, as will be detailed below.  The metadata for the
+example above could be represented as:
+
+\begin{lstlisting}[language=siexml]
+<ch id="0" name="example">
+  <dim index="0">
+    <tag id="core:label">time</tag>
+    <tag id="core:units">seconds</tag>
+  </dim>
+  <dim index="1">
+    <tag id="core:label">measurement</tag>
+    <tag id="core:units">millivolts</tag>
+  </dim>
+</ch>
+\end{lstlisting}
+
+To help standardize and document the many ways data and metadata can
+be represented on this basic model, SIE has \emph{schemas}, which are
+documented sets of data and metadata representation standards.
+Schemas are identified by a namespacing system --- for example, all
+tags beginning with \xml{core:} belong to the \xml{core} schema.  The
+\xml{sie} schema is reserved for items defined in the SIE format
+proper, and will be described later in this document.  Two other
+schemas exist at the time of this writing:  the aforementioned
+\xml{core}, which describes what is believed to be metadata that will
+be applicable to most engineering data, and \xml{somat}, which
+describes metadata and data representations specific to SoMat's line
+of data acquisition systems.  Please see the \xml{core} and
+\xml{somat} schema documents for more information.
+
+Note that data can be \emph{stored} in SIE in almost any conceivable
+format.  Most of the SIE format is in fact a mechanism to convert
+arbitrary binary data in a block-structured container into the unified
+data model described above.
+
+\subsection{Block structure}
+\label{block-structure-sec}
+
+SIE is output as a stream of bytes, which is composed of a series of
+data blocks in sequence without intervening padding.  This is depicted
+in figure~\ref{data-stream-fig}.  A block is composed of several
+parts, namely a \emph{size}, \emph{group}, \emph{sync word},
+\emph{payload}, and \emph{checksum}.  The size is repeated on both
+ends of the block.  All of these except the payload are 32-bit
+unsigned integers in network (big-endian) byte order.
+
+\def\blockline{
+  size & group & sync & 
+  \hspace{1cm}payload\hspace{1cm} 
+  & check & size \\ \hline
+}
+\def\blockstructure{
+  \begin{center}
+    \begin{tabular}{|c|c|c|c|c|c|}    \hline
+      \blockline
+      \blockline
+      \multicolumn{6}{c}{$\cdots$} \\ \hline
+      \blockline
+    \end{tabular}
+  \end{center}
+}
+
+\begin{figure}
+  \blockstructure
+  \caption{An SIE data stream}  \label{data-stream-fig}
+\end{figure}
+
+The \emph{size} is simply the size of the block in bytes, including
+both size fields.  Having the size on both sides of the block allows
+SIE data in a file to be traversed both forwards and backwards, and
+also provides one level of consistency checking --- if the sizes don't
+agree, something is wrong.
+
+The \emph{group} identifies what data are contained in the
+\emph{payload} of the block.  Groups 0 and 1 are always the XML
+metadata and index blocks respectively.  The purpose of all other
+groups is defined in the XML metadata.
+
+The \emph{sync word} is always the hexadecimal value
+\lit{51EDA7A0}.  This looks vaguely like ``SIEDATA0.''  The sync
+word is used to find the beginning of a block (or ``resync'') in cases
+such as damaged files or joining a broadcast stream in the middle.
+Also, as it has some high bits set, if an SIE file is transmitted over
+a medium that is not 8-bit clean, the sync word will be damaged,
+quickly indicating corruption even if checksums are not present.
+
+The \emph{payload} is the actual data contained in the block.  It is
+interpreted based on the \emph{group} of the block.  As can be
+deduced, the length of the payload is always $\emph{size} - 20$.
+
+Finally, the \emph{checksum} is a CRC32 checksum of all bytes from the
+first byte of the first \emph{size} through the last byte of the
+\emph{payload}.  The checksum is optional, as some devices may not
+have the processor capacity to compute it, but if it is not present,
+the checksum field must be set to zero.  When reading a block, a zero
+checksum is always valid.
+
+A block with a payload size of zero indicates that no more blocks of
+that group will occur.  This is intended to be used to indicate end of
+data in real-time streaming scenarios.
+
+\def\blocktable{
+  \begin{center}
+    \begin{tabular}{rrll}
+      \textbf{Offset} & \textbf{Size} & 
+        \textbf{Name} & \textbf{Description} \\ \hline
+    $0$      & $4$ & \emph{size}      & Total size of the block in bytes. \\ 
+    $4$      & $4$ & \emph{group}     & Group identifier for this block.  \\ 
+    $8$      & $4$ & \emph{sync word} & Constant \lit{51EDA7A0}.          \\ 
+    $12$     & $n$ & \emph{payload}   & $n$ bytes of data.                \\ 
+    $n + 12$ & $4$ & \emph{checksum}  &
+        CRC32 of bytes $0$ through $n + 11$ inclusive.                    \\ 
+    $n + 16$ & $4$ & \emph{size 2}    & Same as \emph{size}.              \\ 
+    \multicolumn{4}{c}{\emph{(All sizes and offsets in bytes.)}}
+    \end{tabular}
+  \end{center}
+}
+
+\begin{table}
+  \blocktable
+  \caption{An SIE block}  \label{block-tab}
+\end{table}
+
+\subsection{Predefined groups}
+
+There are only two groups defined in the core SIE standard:  group 0
+blocks contain the SIE XML metadata, and group 1 blocks are index
+blocks.
+
+\subsubsection{XML metadata (group 0)}
+
+The SIE XML metadata defines how to interpret the SIE data.  It
+contains \emph{tags}, which are generalized metadata relating an
+arbitrary text key to a completely arbitrary value; \emph{channels},
+which are groupings of engineering data (composed of multiple
+\emph{dimensions}) with their associated metadata; and \emph{tests},
+which are groupings of channels.  Tags can appear at all levels of the
+hierarchy.
+
+Additionally, the SIE XML metadata contains descriptions of all binary
+formats contained within the file, including the block structure
+defined above.  These descriptions are contained within
+\emph{decoders}, which are small programs to read and interpret binary
+data.
+
+The XML representation of the SIE metadata is defined as the
+sequential concatenation of the payload of every block with group ID
+0.  The standard SIE XML metadata preamble is:
+
+\begin{lstlisting}[language=siexml,frame=simple]
+<?xml version="1.0" encoding="UTF-8"?>
+<sie version="1.0" xmlns="http://www.somat.com/SIE">
+<!-- SIE format standard definitions: -->
+ <!-- SIE stream decoder: -->
+ <decoder id="0">
+  <loop>
+   <read var="size" bits="32" type="uint" endian="big"/>
+   <read var="group" bits="32" type="uint" endian="big"/>
+   <read var="syncword" bits="32" type="uint" endian="big" value="0x51EDA7A0"/>
+   <read var="payload" octets="{$size - 20}" type="raw"/>
+   <read var="checksum" bits="32" type="uint" endian="big"/>
+   <read var="size2" bits="32" type="uint" endian="big" value="{$size}"/>
+  </loop>
+ </decoder>
+ <tag id="sie:xml_metadata" group="0" format="text/xml"/>
+
+ <!-- SIE index block decoder:  v0=offset, v1=group -->
+ <decoder id="1">
+  <loop>
+   <read var="v0" bits="64" type="uint" endian="big"/>
+   <read var="v1" bits="32" type="uint" endian="big"/>
+   <sample/>
+  </loop>
+ </decoder>
+ <tag id="sie:block_index" group="1" decoder="1"/>
+
+<!-- Stream-specific definitions begin here: -->
+\end{lstlisting}
+
+Notice this contains a description of the block structure described in
+section~\ref{block-structure-sec}, and a tag \xml{sie:xml\_metadata},
+the value of which is the contents of group 0.  It also contains a tag
+and description of the format of the block indexes, described below.
+
+The purpose of including this preamble is not to expect that a reader
+program will extract how to read the SIE block structure from this
+description; a sufficiently clever implementation could, but that
+value of this is questionable.  Rather, it is to realize the design
+goal that the format be completely self-describing.  Even without this
+document, looking at an SIE file in a text editor will yield a good
+chance of understanding the basic format.
+
+To make possible some of the properties of the SIE format, the XML
+representation used has some unusual features.  To support streaming
+data, the XML format supports effectively overriding and modifying
+metadata from earlier in the stream.  For example, the following two
+samples are equivalent:
+
+\begin{multicols}{2}
+\begin{lstlisting}[language=siexml]
+<ch id="42" name="test">
+  <tag id="core:description">testing</tag>
+</ch>
+<ch id="42">
+  <tag id="core:output_samples">74088</tag>
+</ch>
+\end{lstlisting}
+
+\begin{lstlisting}[language=siexml]
+<ch id="42" name="test">
+  <tag id="core:description">testing</tag>
+  <tag id="core:output_samples">74088</tag>
+</ch>
+\end{lstlisting}
+\end{multicols}
+
+This is an example of \emph{merging} behavior.  This can be used to
+add information once it is known --- in the example above, the number
+of output samples is clearly not known until all samples are written
+to the file.
+
+Some other metadata are atomic and \emph{replace} instead, such as
+\xml{tag}s:
+
+\begin{multicols}{2}
+\vbox{
+\begin{lstlisting}[language=siexml]
+<ch id="42" name="test">
+  <tag id="core:description">testing</tag>
+</ch>
+<ch id="42">
+  <tag id="core:description">overridden</tag>
+</ch>
+\end{lstlisting}
+}\vbox{
+\begin{lstlisting}[language=siexml]
+<ch id="42" name="test">
+  <tag id="core:description">overridden</tag>
+</ch>
+\end{lstlisting}
+}
+\end{multicols}
+
+Table~\ref{xml-merge} details the merging and replace behavior for
+interpreting the SIE XML metadata.  \emph{Behavior} is either
+\emph{merge} or \emph{replace}, the behaviors of which are described
+above.  \emph{Key} is the attribute which is used to select which
+existing element to merge with or replace.  If the key is
+\emph{unique}, only one element of that type is allowed within its
+parent.
+
+\begin{table}
+  \begin{center}
+    \begin{tabular}{lll}
+      \textbf{Element} & \textbf{Behavior} & \textbf{Key}  \\ \hline
+      \xml{ch}         & merge             & \xml{id}      \\
+      \xml{dim}        & merge             & \xml{index}   \\
+      \xml{test}       & merge             & \xml{id}      \\
+      \xml{data}       & replace           & \emph{unique} \\
+      \xml{tag}        & replace           & \xml{id}      \\
+      \xml{xform}      & replace           & \emph{unique}
+    \end{tabular}
+  \end{center}
+  \caption{SIE XML merge and replace behavior}  \label{xml-merge}
+\end{table}
+
+\label{path-spec}
+Additionally, to reduce metadata size and require less state from the
+writer, there is a shortcut method to describe elements nested within
+others.  The attribute names \xml{test}, \xml{ch}, and \xml{dim} are
+reserved for all elements, and produce hierarchy as follows:
+
+\begin{multicols}{2}
+\vbox{
+\begin{lstlisting}[language=siexml]
+<tag 
+   ch="2" dim="3" test="1"
+   id="core:description">test</tag>
+\end{lstlisting}
+}\vbox{
+\begin{lstlisting}[language=siexml]
+<test id="1">
+  <ch id="2">
+    <dim index="3">
+      <tag id="core:description">test</tag>
+    </dim>
+  </ch>
+</test>
+\end{lstlisting}
+}
+\end{multicols}
+
+Note that to allow this to be implemented by a simple expansion, there
+cannot be redundant element specifiers.  For example, the following
+would be in error, as it could create two nested \xml{test} tags:
+
+\begin{lstlisting}[language=siexml]
+<test id="1">
+  <tag 
+     ch="2" dim="3" test="1"
+     id="core:description">test</tag>
+</test>
+\end{lstlisting}
+
+\label{inherit}
+Finally, the \xml{ch} and \xml{test} elements support
+\emph{inheritance}.  To inherit, set the \xml{base} attribute to the
+\xml{id} of the element you wish to inherit from.  For instance, the
+following are equivalent:
+
+\begin{multicols}{2}
+\vbox{
+\begin{lstlisting}[language=siexml]
+<ch id="2" name="old">
+  <tag id="core:description">test</tag>
+</ch>
+<ch id="42" base="2" name="new"/>
+\end{lstlisting}
+}\vbox{
+\begin{lstlisting}[language=siexml]
+<ch id="2" name="old">
+  <tag id="core:description">test</tag>
+</ch>
+<ch id="42" name="new">
+  <tag id="core:description">test</tag>
+</ch>
+\end{lstlisting}
+}
+\end{multicols}
+
+Inheritance is useful for creating many similar channels without
+excessive duplication.  
+%{\small FIXME The complete definition of a
+%  \xml{ch} is considered to be a clone of the \xml{ch} identified by
+%  \xml{base} (recursively interpreted through its \xml{base} if any),
+%  with conflicting fields in the clone replaced by those specified in
+%  the top level definition.}
+
+\subsubsection{Index blocks (group 1)}
+
+Index blocks, if present, allow an SIE file to be opened more quickly.
+The payload of an index block consists of a sequence of 64-bit offset
+and 32-bit groups; each offset and group correspond to one of the
+blocks that are being indexed.  Index blocks appear \emph{after} the
+blocks which they are indexing, allowing the SIE file to be streamed.
+
+Each index block must cover a consecutive chunk of blocks ending with
+the last block before the index block itself.  Index blocks that are
+present in another later index block will be passed over to allow
+reindexing of a file.
+
+\subsection{XML metadata grammar}
+
+\subsubsection{\xml{sie} element}
+
+The \xml{sie} element is the top-level element of the SIE XML
+metadata.  The \xml{version} attribute specifies the version of
+SIE --- version \siever{} is described in this document.  The \xml{sie}
+element can contain \xml{tag}s, \xml{decoder}s, channels (\xml{ch}),
+and \xml{test}s.
+
+The \xml{sie} element is described below in the \relaxng{} schema
+description language.  Similar \relaxng{} syntax will follow all
+other element descriptions below.
+
+\begin{grammar}
+SIE = element sie {
+  attribute version { text },
+  ( TopTag | Decoder | Channel | Test )*
+}
+\end{grammar}
+
+Note that as an SIE stream is always capable of being appended to, the
+\xml{sie} element should never be explicitly closed.  For parsing
+purposes, consider ``\lit{</sie>}'' added to the end of the XML
+metadata.
+
+\subsubsection{\xml{tag} element}
+
+The \xml{tag} element is the generic element for application-level
+annotation, which allows arbitrary text as the tag name, and
+completely arbitrary values.
+
+\xml{tag} values are stored either directly in the XML, properly escaped:
+\begin{lstlisting}[language=siexml]
+<tag id="core:sample_rate">500</tag>
+\end{lstlisting}
+or as the contents of a group:
+\begin{lstlisting}[language=siexml]
+<tag id="setup_photo.1" group="27" format="image/jpeg"/>
+\end{lstlisting}
+
+For the \emph{group} form, the value of the tag is considered to be
+the sequential concatenation of the payload of every block with the
+specified group ID.
+
+The \lstinline[language=siexml]!<tag group="42" decoder="17"/>! form
+allows binary structures specifiable through the \xml{decoder}
+mechanism. Extant SIE reader implementations are not capable of
+applying \xml{decoder}s to \xml{tag} values yet, however.
+
+\begin{grammar}
+TestSpecs = ( ChannelSpec | ( ChannelSpec & DimSpec ) )
+\end{grammar}
+\begin{grammar}
+TopTag = element tag {
+  ( attribute test { UINT } | TestSpecs )?,
+  TagBase
+}
+\end{grammar}
+\begin{grammar}
+TestTag = element tag {
+  TestSpecs?,
+  TagBase
+}
+\end{grammar}
+\begin{grammar}
+ChannelTag = element tag {
+  DimSpec?,
+  TagBase
+}
+\end{grammar}
+\begin{grammar}
+Tag = element tag {
+  TagBase
+}
+\end{grammar}
+\begin{grammar}
+TagBase = (
+  attribute id { text },
+  ((attribute group { UINT }, DecoderOrFormat?) | text)
+)
+\end{grammar}
+\begin{grammar}
+DecoderOrFormat = ( attribute decoder { UINT } | Format )
+\end{grammar}
+\begin{grammar}
+UINT = xsd:nonNegativeInteger
+\end{grammar}
+
+\subsubsection{\xml{decoder} element}
+
+Each \xml{decoder} contains the machinery to decode the binary payload
+from a particular data block. The same decoder may be used by any
+number of different channels; the assignment of a particular decoder
+ID to a group is mediated through the \xml{group} and \xml{ch}
+directives. 
+
+\begin{grammar}
+Decoder = element decoder {
+  Id,
+  DecodeOps*
+}
+\end{grammar}
+\begin{grammar}
+DecodeOps = ( If | Loop | Read | Sample | Seek | Set )
+\end{grammar}
+
+\paragraph{Variables}
+
+Decoder variables can contain either numbers or arbitrary binary data
+of unbounded size.  Variables are always initialized to zero upon
+entering a decoder.  The special variables \xml{v0}, \xml{v1}, \ldots,
+\xml{v}$n$ are used by the \xml{sample} operator to compose output
+result vectors.
+
+\paragraph{Expressions}
+
+Expressions start with a \xml{\{} and end with \xml{\}}.  Simple
+arithmetic expressions are supported, and variable dereferencing via
+the \xml{\$} prefix, i.e. the value of \xml{\{\$foo + 24\}} is 24 plus
+the value of the variable \xml{foo}.
+
+\begin{grammar}
+EXPR = text  # either a literal number or an {...} expression
+\end{grammar}
+
+\paragraph{\xml{if} operator}
+
+\xml{if} is used for conditional execution of code.  If the expression
+in the \xml{condition} attribute evaluates to non-zero, the contents
+of the \xml{if} are executed.
+
+\begin{grammar}
+If = element if {
+  attribute condition { EXPR },
+  DecodeOps*
+}
+\end{grammar}
+
+\paragraph{\xml{loop} operator}
+
+\xml{loop} is a general iteration mechanism.  By default, it repeats
+its contents forever or until the decoder aborts upon a failed
+\xml{read} operation.  If the optional \xml{var} attribute is present,
+the numeric variable defined within (the \emph{loop variable}) will
+incremented by one at the end of each iteration.
+
+If the \xml{var} attribute is present, the optional \xml{start},
+\xml{end}, and \xml{increment} attributes can be specified, each
+containing an expression.
+
+The \xml{increment} defaults to one; the loop variable will be
+incremented by this value at the end of each loop iteration.  If this
+is defined as an expression, the increment will be computed each
+iteration.
+
+The \xml{start} attribute is the value that the variable in the
+\xml{var} attribute will begin the loop with.
+\lstinline[language=siexml]!<loop var="foo" start="42">!
+is exactly equivalent to
+\lstinline[language=siexml]!<set var="foo" value="42"/><loop var="foo">!.
+
+The \xml{end} attribute sets the termination condition; the loop runs
+while $\xml{var} < \xml{end}$ when the increment is zero or positive,
+and $\xml{var} > \xml{end}$ when the increment is negative.  If the
+increment is variable, the termination condition style is computed
+each time through the loop appropriately.
+
+\begin{grammar}
+Loop = element loop {
+  (attribute var { text }, LoopOpts)?,
+  DecodeOps*
+}
+\end{grammar}
+\begin{grammar}
+LoopOpts = (
+  attribute increment { EXPR }?,
+  attribute start { EXPR }?,
+  attribute end { EXPR }?
+)
+\end{grammar}
+
+\paragraph{\xml{read} operator}
+
+The \xml{read} operator reads $n$ bits of payload from the current
+position, where $n$ is either the value of the \xml{bits} attribute,
+or eight times the value of the \xml{octets} attribute.  \xml{bits},
+if used, must be a multiple of eight.  If neither size attribute is
+present, all remaining data in the payload is read.  If there is less
+data remaining than requested, the decoder terminates; this is the
+primary means of termination for most decoders.
+
+If the \xml{var} attribute is present, the named variable is set to
+the value read, interpreted according to any \xml{type} and
+\xml{endian} attributes that may be present.  If no \xml{type} or
+\xml{endian} attributes are set, or if the \xml{type} attribute is set
+to ``raw'', the data are assigned as a raw binary string.
+
+The optional \xml{value} attribute asserts that the value read is
+equal to the value of the attribute.  An error will result if this is
+not the case.
+
+The \xml{type} attribute has several possible values:  \\
+\begin{tabular}{r@{: }l}
+  ``int''   & Two's complement signed integer of 8, 16, 
+              32, or 64 bits. \\
+  ``uint''  & Unsigned integer of 8, 16, 32, or 64 bits. \\
+  ``float'' & IEEE-754 floating point value of either 
+              32 or 64 bits. \\
+  ``raw''   & No interpretation; store unmodified binary buffer.
+              The \xml{endian} attribute has no effect here.
+\end{tabular}
+
+The \xml{endian} attribute specifies the byte order to be used for
+interpreting numerical data. The number \lit{0x00112233} would be
+stored in the order \lit{0x00}, \lit{0x11}, \lit{0x22}, \lit{0x33} in
+\xml{endian="big"} (also known as network or Motorola order), and as
+\lit{0x33}, \lit{0x22}, \lit{0x11}, \lit{0x00} in
+\xml{endian="little"} (Intel, Vax, x86 order).
+
+\begin{grammar}
+Read = element read {
+  attribute var { text }?,
+  ( attribute bits { EXPR } | attribute octets { EXPR }),
+  ReadType,
+  attribute value { EXPR }?
+}
+\end{grammar}
+\begin{grammar}
+ReadType = (
+  Format
+  | attribute type { "raw" }
+  | ( attribute type { "int" | "uint" | "float" }
+      & attribute endian { "big" | "little" } )
+)
+\end{grammar}
+
+\paragraph{\xml{sample} operator}
+
+\xml{sample} causes a data sample vector $[\xml{v0}, \xml{v1}, \ldots,
+  \xml{v}n]$ to be added to the decoder's output queue.  All variables
+of the form v0, v1, v2, etc.\ that are used in the decoder (through
+\xml{loop}, \xml{set}, or \xml{read} operators) are included in the
+output vector.
+
+\begin{grammar}
+Sample = element sample { empty }
+\end{grammar}
+
+\paragraph{\xml{seek} operator}
+
+The \xml{seek} operator moves the location from which the next
+\xml{read} operator will read data.  The read location is moved to the
+position described in the attributes \xml{from} and \xml{offset}.
+\xml{from} can either be ``start'', the start of the data;
+``current'', the current position; or ``end'', the end of the data.
+\xml{offset} is an expression evaluating to the number of octets
+offset from the \xml{from} location.
+
+\begin{grammar}
+Seek = element seek {
+  attribute from { "start" | "current" | "end" },
+  attribute offset { EXPR }
+}
+\end{grammar}
+
+\paragraph{\xml{set} operator}
+
+\xml{set} is used to set the variable specified by the attribute
+\xml{var} to the value of the attribute \xml{value}.  \xml{value} can
+be either a literal number or an expression.
+
+\begin{grammar}
+Set = element set {
+  attribute var { text },
+  attribute value { EXPR }
+}
+\end{grammar}
+
+\subsubsection{\xml{ch} element}
+
+\xml{ch} is the container used to define engineering level data
+channels.  It contains \xml{dim} elements whose
+\xml{xform}, \xml{data}, and \xml{tag} elements have all the
+information necessary to convert the raw decoder data vectors into
+engineering unit data.  The optional \xml{name} attribute defines the
+channel name.  All other information is contained in \xml{tag}
+elements either directly under \xml{ch} or under a \xml{dim}
+child.
+
+To minimize redundancy, \xml{ch} supports an inheritance mechanism
+through its \xml{base} attribute.  See page~\pageref{inherit} for more
+details.
+
+The optional \xml{group} attribute specifies a single group to be
+associated with the channel.  This will be most often seen using
+inheritance inside a test definition:
+\begin{lstlisting}[language=siexml]
+<test id="1">
+  <ch id="9" base="0" group="5" name="th1@rpm.RN_2"/>
+  <ch id="10" base="1" group="5" name="th1@coolant.RN_2"/>
+</test>
+\end{lstlisting}
+
+%% More than one group can contribute to a channel:  the \xml{dim}
+%% \xml{group} attribute overrides any \xml{group} attribute of the
+%% parent channel.
+
+\begin{grammar}
+Channel = element ch {
+  Id,
+  attribute base { UINT }?,
+  attribute name { text }?,
+  attribute group { UINT }?,
+  Private?,
+  (Dimension* & ChannelTransform* & ChannelTag*)
+}
+\end{grammar}
+
+\subsubsection{\xml{dim} element}
+
+The \xml{dim} element contains the definition for axis \xml{index}.
+The first axis is index zero.  Decoder data for the dimension comes
+from the \xml{dim}'s \xml{group} attribute, or if that does not exist,
+the enclosing \xml{ch}'s \xml{group} attribute.
+
+\begin{grammar}
+Dimension = element dim {
+  attribute index { UINT },
+  attribute group { UINT }?,
+  ( Transform? & Data? & Tag* )
+}
+\end{grammar}
+
+\subsubsection{\xml{xform} element}
+
+\xml{xform} defines a linear tranform using the \xml{scale} (i.e. slope)
+and \xml{offset}" (i.e. intercept) attributes.  An indexed mapping
+transform (essentially an array lookup) uses \xml{index\_ch} and
+\xml{index\_dim} to define the output.
+%%  Currently dimension 0 of the
+%% specified channel is used implicitly as the "from" part of the
+%% map. <= KLUDGE check this statement
+
+\begin{grammar}
+Transform = element xform { Transforms }
+\end{grammar}
+\begin{grammar}
+TestTransform = element xform { ChannelDimSpec, Transforms }
+\end{grammar}
+\begin{grammar}
+ChannelTransform = element xform { DimSpec, Transforms }
+\end{grammar}
+\begin{grammar}
+Transforms = (LinearTransform | IndexTransform)
+\end{grammar}
+\begin{grammar}
+LinearTransform = (
+  attribute scale { REAL },
+  attribute offset { REAL }
+)
+\end{grammar}
+\begin{grammar}
+IndexTransform = (
+  attribute index_ch { UINT },
+  attribute index_dim { UINT }
+)
+\end{grammar}
+
+\subsubsection{\xml{data} element}
+
+\lstinline[language=siexml]!<data decoder="d" v="v">! is used to
+define the data for a particular \xml{dimension} as the vector element
+$v$ from decoder $d$.  Thus
+\begin{lstlisting}[language=siexml]
+<dim index="2">
+  <data decoder="7" v="3">
+</dim>
+\end{lstlisting}
+assigns element v3 of decoder 7's output to dimension 2 of the
+channel.
+
+\begin{grammar}
+Data = element data {
+  DecoderOrFormat,
+  attribute v { UINT }
+}
+\end{grammar}
+
+\subsection{Data rendering algorithm}
+
+The first step in getting the data model representation of an SIE
+channel's data is to look at the \xml{ch} element defining the
+channel's metadata.
+
+The following information must be obtained for each dimension $d$:
+which group the data are going to be read from ($g$), which decoder
+will be used to decode the data ($D$), which \xml{v} of the decoder
+will be assigned to the dimension ($v_d$), and optionally, what
+transform will be applied to the output of the decoder ($x_d$).  Note
+that for this SIE version, the group and decoder for all dimensions
+must be the same, as there is no way to specify how multiple disparate
+decoder outputs be joined.  If any of the required information above
+is missing, the channel is \emph{abstract} and does not have data
+associated with it.  This is common in the case of base channels which
+are only used to hold common metadata for other channels.  Usually,
+these channels will have the \xml{private} attribute set so the reader
+knows not to try to access them.
+
+To determine the group, look at the \xml{group} attribute for each of
+the \xml{dim} elements, \emph{or} the \xml{group} attribute of the
+\xml{ch} element.  The decoder ID is defined by the \xml{decoder}
+attribute in each dimension's \xml{data} element, and the decoder
+\xml{v} by the \xml{v} attribute.  Finally, the transform is defined
+by the dimension's \xml{xform} element, if any.
+
+Knowing $g$, $D$, all $v_d$, and all $x_d$, the algorithm to render
+the channel data is relatively straightforward:
+
+\begin{tabbing}
+For \= each block $b$ in the SIE stream with group ID $g$: \\
+    \> Run decoder $D$ on the payload of $b$, producing multiple
+       output vectors. \\
+    \> For \= each decoder output vector $V$: \\
+    \>     \> Start building up an output row $r$. \\
+    \>     \> For \= each dimension $d$ in the channel: \\
+    \>     \>     \> Let $o$ be the decoder output $V[v_d]$. \\
+    \>     \>     \> If the transform $x_d$ exists, apply it to $o$. \\
+    \>     \>     \> Assign $r[d]$ to be the value of $o$. \\
+    \>     \> Append the row $r$ to the channel data.
+\end{tabbing}
+
+The result of this algorithm will be the channel data in the form of
+the universal SIE data model as described in
+section~\ref{data-model-sec}.
+
+\section{Implementation}
+
+\subsection{Writing SIE}
+
+The design of SIE is biased to be simple and efficient to write.  An
+SIE writing implementation can output almost any binary format
+desired; the binary data need only be packaged in self-contained
+format in SIE blocks and have the appropriate SIE XML metadata
+included defining how to interpret it.
+
+As an example, consider an extremely simple data logger.  This
+theoretical data logger collects a single channel of time series data,
+and stores the data in 16-bit signed integers in big-endian byte
+ordering to on-board flash.  Furthermore, the logger only has 128
+bytes of usable RAM.
+
+Outputting SIE from this device is quite feasible.  Pre-computed XML
+metadata segments for this device's single output format are stored in
+ROM.  In between these segments are ``holes'' where computed metadata
+values needs to go.
+
+To output the data in SIE format, the first XML section (containing
+from the beginning of the SIE XML preamble up to the first variable
+metadata) is output in a group 0 block.  While this is larger than the
+RAM available, it can be done incrementally since the size is known
+ahead of time.  Then, the first piece of variable metadata is computed
+and a group 0 block containing just that metadata is output.  This
+process of outputting pre-computed XML and outputting computed
+metadata values continues until the end of the XML is reached.  Then,
+the size of the data is computed, a block header for the data is
+output, the actual data is output, and a block footer for the data is
+output.
+
+All CRCs can be written as zero, though since the CRCs for the
+constant XML sections could be precomputed they might as well be
+written out.  Index blocks are also optional and would not be written
+in this scenario.
+
+While this is an extreme example, it demonstrates that writing a
+fully-compliant SIE file needs little more than ROM space to store the
+XML.
+
+\subsubsection{Writing guidelines}
+
+%% \incomplete{}
+
+\begin{itemize}
+\item Choose data representations that are self-contained (i.e., in
+  \xml{somat:histogram}, each row is a complete specification of a
+  bin, containing both its count and its position in engineering
+  units).
+\item Choose block sizes that strike a balance between overhead (as
+  there are 20 bytes of overhead for each block written; 32 and some
+  small fraction with indexes) and seekability (the block is the
+  natural unit of reading granularity in an SIE file; don't write out
+  blocks larger than the RAM of the reading computer).
+\item If at all possible, use CRCs on XML and index blocks even if in
+  general CRCs cannot be used on all data due to performance
+  limitations.
+\end{itemize}
+
+%% \subsubsection{The eDAQ SIE writing implementation}
+
+%% \incomplete{}
+
+\subsection{Reading SIE}
+
+On an abstract level, reading an SIE file is relatively easy --- as
+described earlier, the format was designed to be self-documenting
+enough that looking at an SIE file in a text editor should reveal
+enough information for a human to be able to manually extract
+engineering data from the file.  Writing a computer program to read a
+\emph{specific} SIE file is also relatively straightforward.  However,
+writing a computer program to read \emph{all} SIE files is rather
+complicated.
+
+Since a design goal of SIE was to allow simple and flexible writing
+implementations, a lot of the complexity is shifted onto the reading
+side.  The nature of the SIE format basically mandates than a general
+reader implementation must contain at least an XML parser, a parser
+for the decoder expression language, a decoder language interpreter or
+compiler, a robust implementation of the SIE data rendering algorithm,
+and an API general enough to deal with the wide variety of data
+representable in an SIE file.  This is a major software undertaking.
+Additionally, the presence of limited or faulty SIE reading
+implementations weakens the advantages of the format --- SIE writers
+will not be free to use the inherent flexibility of the format to
+their advantage if the reading implementations used cannot handle the
+full specification.
+
+The authors, aware of this problem, sought to write a single general
+SIE reader implementation, \libsie{},  and release it under a liberal
+freely-available software license, so as to be available to all.
+%%   This
+%% software, \libsie{}, is described below.
+
+%% \subsubsection{The \libsie{} reading implementation}
+
+%% \section{Future work}
+
+%% \subsection{Support for streaming data}
+
+%% \subsection{Corrupt data recovery}
+
+%% \section{Conclusions}
+
+%% \appendix
+
+%% \section{SIE RelaxNG XML specification}
+
+%% \verbatiminput{../../../sie/SIE.rnc}
+
+\appendix
+
+\section{License}
+
+\begin{verbatim}
+Copyright (C) 2005-2010  HBM Inc., SoMat Products
+
+This document is free software; you can redistribute it and/or
+modify it under the terms of version 2.1 of the GNU Lesser General
+Public License as published by the Free Software Foundation.
+
+This document is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this document; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+02110-1301 USA
+\end{verbatim}
+
+\bibliography{bibliography}{}
+\bibliographystyle{plainnat}
+
+\end{document}
