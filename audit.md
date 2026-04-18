@@ -186,7 +186,7 @@ The following XML utility functions from the C library are not present in the Zi
 
 **Impact**: Low — slightly higher memory usage at open time, but simpler code and no risk of lazy-init bugs.
 
-**userinput** Technically the binary blocks in the file are contained in the xml structure. these can become very large (multiple gigabytes). if this could cause problems with the eager approach then the lazy approach will need to be implemented. alternatively in my own implementation i inserted the closing tag </sie> before the binary blocks before parsing. this was accomplished through the index blocks. decide what is the best approach here and implement.
+**userinput** Technically the binary blocks in the file are contained in the xml structure. these can become very large (multiple gigabytes). if this could cause problems with the eager approach then the lazy approach will need to be implemented. alternatively in my own implementation i inserted the closing tag </sie> before the binary blocks before parsing. this was accomplished through the index blocks. decide what is the best approach here and ask for user input before implementing.
 
 #### 9. `dump()` Debug Methods Not Ported
 
