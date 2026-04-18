@@ -171,6 +171,198 @@ pub fn scanForMagic(allocator: std.mem.Allocator, data: []const u8) !std.ArrayLi
     return offsets;
 }
 
+/// Top-level file recovery: scans a file for magic bytes, extracts contiguous
+/// block runs, and attempts to glue adjacent parts together.
+/// Returns a RecoverResult with all discovered parts and glue entries.
+pub fn recover(allocator: std.mem.Allocator, path: []const u8, mod: u64) !RecoverResult {
+    // Open and read the file
+    const cwd = std.fs.cwd();
+    const file_handle = cwd.openFile(path, .{ .mode = .read_only }) catch {
+        return error.FileNotFound;
+    };
+    defer file_handle.close();
+
+    const stat = try file_handle.stat();
+    const file_size = stat.size;
+    if (file_size == 0) {
+        return RecoverResult{ .parts = .{}, .glue_entries = .{} };
+    }
+
+    const data = try allocator.alloc(u8, file_size);
+    defer allocator.free(data);
+    const n = try file_handle.readAll(data);
+    if (n != file_size) {
+        return error.UnexpectedEof;
+    }
+
+    var result = RecoverResult{ .parts = .{}, .glue_entries = .{} };
+    errdefer result.deinit(allocator);
+
+    // Pass 1: Find all magic byte positions and extract contiguous block runs
+    var magic_offsets = try scanForMagic(allocator, data);
+    defer magic_offsets.deinit(allocator);
+
+    // Group consecutive valid blocks into parts
+    var part_start: ?u64 = null;
+    var part_end: u64 = 0;
+    var before_size: u32 = 0;
+
+    for (magic_offsets.items) |block_offset| {
+        // Validate this is a real block
+        const off = @as(usize, @intCast(block_offset));
+        if (off + block_mod.SIE_HEADER_SIZE > data.len) continue;
+
+        const block_size = std.mem.readInt(u32, data[off..][0..4], .big);
+        if (block_size < block_mod.SIE_OVERHEAD_SIZE) continue;
+        if (off + block_size > data.len) continue;
+
+        const magic = std.mem.readInt(u32, data[off + 8 ..][0..4], .big);
+        if (magic != block_mod.SIE_MAGIC) continue;
+
+        // Verify CRC
+        const payload_size = block_size - block_mod.SIE_OVERHEAD_SIZE;
+        const trailer_off = off + 12 + payload_size;
+        if (trailer_off + 8 > data.len) continue;
+        const trailer_crc = std.mem.readInt(u32, data[trailer_off..][0..4], .big);
+        const trailer_size = std.mem.readInt(u32, data[trailer_off + 4 ..][0..4], .big);
+        if (trailer_size != block_size) continue;
+        const computed_crc = block_mod.crc32(data[off .. off + 12 + payload_size]);
+        if (computed_crc != trailer_crc) continue;
+
+        const block_end = block_offset + block_size;
+
+        if (part_start == null) {
+            part_start = block_offset;
+            part_end = block_end;
+            // Read before_size: 4 bytes before the block start
+            if (block_offset >= 4) {
+                before_size = std.mem.readInt(u32, data[@intCast(block_offset - 4)..][0..4], .big);
+            } else {
+                before_size = 0;
+            }
+        } else if (block_offset == part_end) {
+            // Contiguous with current part
+            part_end = block_end;
+        } else {
+            // Gap: finalize current part and start a new one
+            var after_size: u32 = 0;
+            if (part_end + 4 <= data.len) {
+                after_size = std.mem.readInt(u32, data[@intCast(part_end)..][0..4], .big);
+            }
+            try result.parts.append(allocator, .{
+                .offset = part_start.?,
+                .size = part_end - part_start.?,
+                .before_size = before_size,
+                .after_size = after_size,
+                .before_glue_ids = .{},
+                .after_glue_ids = .{},
+                .indexes = .{},
+            });
+            part_start = block_offset;
+            part_end = block_end;
+            if (block_offset >= 4) {
+                before_size = std.mem.readInt(u32, data[@intCast(block_offset - 4)..][0..4], .big);
+            } else {
+                before_size = 0;
+            }
+        }
+    }
+
+    // Finalize last part
+    if (part_start != null) {
+        var after_size: u32 = 0;
+        if (part_end + 4 <= data.len) {
+            after_size = std.mem.readInt(u32, data[@intCast(part_end)..][0..4], .big);
+        }
+        try result.parts.append(allocator, .{
+            .offset = part_start.?,
+            .size = part_end - part_start.?,
+            .before_size = before_size,
+            .after_size = after_size,
+            .before_glue_ids = .{},
+            .after_glue_ids = .{},
+            .indexes = .{},
+        });
+    }
+
+    // Pass 2 & 3: Try to glue adjacent parts
+    var next_glue_id: usize = 0;
+    const num_parts = result.parts.items.len;
+
+    if (num_parts >= 2) {
+        // Pass 2: Ordered pairs (adjacent parts)
+        for (0..num_parts - 1) |pi| {
+            const p1 = &result.parts.items[pi];
+            const p2 = &result.parts.items[pi + 1];
+            const sz = p1.after_size;
+            if (sz < block_mod.SIE_OVERHEAD_SIZE or sz > 1048576) continue;
+
+            const p1_end = @as(usize, @intCast(p1.offset + p1.size));
+            const p2_start = @as(usize, @intCast(p2.offset));
+            if (p1_end + sz > data.len or p2_start + sz > data.len) continue;
+
+            const left = data[p1_end .. p1_end + sz];
+            const right = data[p2_start - @min(p2_start, sz) ..][0..sz];
+
+            if (tryGlue(left, right, sz, p1.offset + p1.size, mod) != null) {
+                try p1.after_glue_ids.append(allocator, next_glue_id);
+                try p2.before_glue_ids.append(allocator, next_glue_id);
+                try result.glue_entries.append(allocator, .{
+                    .before_part = pi,
+                    .after_part = pi + 1,
+                    .block_size = sz,
+                    .glue_id = next_glue_id,
+                    .indexes = .{},
+                });
+                next_glue_id += 1;
+            }
+        }
+
+        // Pass 3: All pairs
+        for (0..num_parts) |pi| {
+            for (0..num_parts) |qi| {
+                if (pi == qi) continue;
+                // Skip already-glued ordered pairs
+                if (qi == pi + 1 and result.parts.items[pi].after_glue_ids.items.len > 0) continue;
+
+                const p1 = &result.parts.items[pi];
+                const p2 = &result.parts.items[qi];
+                const sz = p1.after_size;
+                if (sz < block_mod.SIE_OVERHEAD_SIZE or sz > 1048576) continue;
+
+                const p1_end = @as(usize, @intCast(p1.offset + p1.size));
+                if (p1_end + sz > data.len) continue;
+                const p2_start = @as(usize, @intCast(p2.offset));
+                if (p2_start < sz and p2_start > 0) continue;
+                if (p2_start + sz > data.len) continue;
+
+                const left = data[p1_end .. p1_end + sz];
+                const right = if (p2_start >= sz) data[p2_start - sz ..][0..sz] else continue;
+
+                if (tryGlue(left, right, sz, p1.offset + p1.size, mod) != null) {
+                    try p1.after_glue_ids.append(allocator, next_glue_id);
+                    try p2.before_glue_ids.append(allocator, next_glue_id);
+                    try result.glue_entries.append(allocator, .{
+                        .before_part = pi,
+                        .after_part = qi,
+                        .block_size = sz,
+                        .glue_id = next_glue_id,
+                        .indexes = .{},
+                    });
+                    next_glue_id += 1;
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
+const error_set = error{
+    FileNotFound,
+    UnexpectedEof,
+};
+
 // ---- Tests ----
 
 const testing = std.testing;

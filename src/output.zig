@@ -148,8 +148,25 @@ pub const Output = struct {
                 },
                 .Raw => {
                     if (d.raw_data) |data| {
-                        if (start + size <= data.len and start > 0) {
-                            std.mem.copyForwards(RawData, data[0..size], data[start..][0..size]);
+                        if (start + size <= data.len) {
+                            // Free owned entries before the kept range
+                            for (data[0..start]) |*r| {
+                                if (r.owned) self.allocator.free(@constCast(r.ptr));
+                                r.* = .{};
+                            }
+                            // Free owned entries after the kept range
+                            for (data[start + size ..]) |*r| {
+                                if (r.owned) self.allocator.free(@constCast(r.ptr));
+                                r.* = .{};
+                            }
+                            // Shift kept range to the front
+                            if (start > 0) {
+                                std.mem.copyForwards(RawData, data[0..size], data[start..][0..size]);
+                                // Clear the vacated tail (already freed above)
+                                for (data[size .. start + size]) |*r| {
+                                    r.* = .{};
+                                }
+                            }
                         }
                     }
                 },
@@ -235,6 +252,65 @@ pub const Output = struct {
     pub fn getDimensionType(self: *const Output, dim: usize) ?OutputType {
         if (dim >= self.num_dims) return null;
         return self.dimensions[dim].dim_type;
+    }
+
+    /// Deep copy this output, cloning all dimension data into new owned buffers
+    pub fn deepCopy(self: *const Output, allocator: std.mem.Allocator) !Output {
+        var copy = try Output.init(allocator, self.num_dims);
+        copy.block = self.block;
+        copy.scan_offset = self.scan_offset;
+        copy.num_rows = self.num_rows;
+
+        for (0..self.num_dims) |v| {
+            const src = &self.dimensions[v];
+            copy.dimensions[v].dim_type = src.dim_type;
+            copy.dimensions[v].guts.element_size = src.guts.element_size;
+
+            switch (src.dim_type) {
+                .Float64 => {
+                    if (src.float64_data) |data| {
+                        const size = @max(self.num_rows, src.guts.capacity);
+                        const new_data = try allocator.alloc(f64, size);
+                        const copy_len = @min(data.len, size);
+                        @memcpy(new_data[0..copy_len], data[0..copy_len]);
+                        if (copy_len < size) @memset(new_data[copy_len..], 0);
+                        copy.dimensions[v].float64_data = new_data;
+                        copy.dimensions[v].owned = true;
+                        copy.dimensions[v].guts.capacity = size;
+                    }
+                },
+                .Raw => {
+                    if (src.raw_data) |data| {
+                        const size = @max(self.num_rows, src.guts.capacity);
+                        const new_data = try allocator.alloc(RawData, size);
+                        for (new_data) |*r| r.* = .{};
+                        for (0..@min(data.len, size)) |row| {
+                            if (data[row].size > 0) {
+                                const owned_copy = try allocator.dupe(u8, data[row].ptr);
+                                new_data[row] = .{
+                                    .ptr = owned_copy,
+                                    .size = data[row].size,
+                                    .owned = true,
+                                };
+                            }
+                        }
+                        copy.dimensions[v].raw_data = new_data;
+                        copy.dimensions[v].owned = true;
+                        copy.dimensions[v].guts.capacity = size;
+                    }
+                },
+                .None => {},
+            }
+        }
+
+        return copy;
+    }
+
+    /// Format for debug output
+    pub fn format(self: *const Output, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("Output(dims={d}, rows={d}, block={d})", .{
+            self.num_dims, self.num_rows, self.block,
+        });
     }
 
     /// Compare two outputs for equality

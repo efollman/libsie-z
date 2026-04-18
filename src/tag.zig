@@ -109,6 +109,14 @@ pub const Tag = struct {
     pub fn deinit(self: *Tag) void {
         _ = self;
     }
+
+    /// Format for debug output
+    pub fn format(self: *const Tag, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        switch (self.value) {
+            .String => |s| try writer.print("Tag(\"{s}\" = \"{s}\", group={d})", .{ self.key, s, self.group }),
+            .Binary => |b| try writer.print("Tag(\"{s}\" = <{d} bytes binary>, group={d})", .{ self.key, b.len, self.group }),
+        }
+    }
 };
 
 test "string tag" {

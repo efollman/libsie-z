@@ -401,6 +401,148 @@ pub const File = struct {
     pub fn asIntake(self: *File) intake_mod.Intake {
         return intake_mod.Intake.init(self.allocator, &vtable, @ptrCast(self));
     }
+
+    // --- Backward reading ---
+
+    /// Search backwards from current position for SIE magic bytes.
+    /// Returns the file offset of the magic, or null if not found within max_search bytes.
+    pub fn searchBackwardsForMagic(self: *File, max_search: usize) !?i64 {
+        const step: usize = 1020;
+        var buf: [1024]u8 = undefined;
+        var count: usize = 0;
+        var cur = self.position - 4;
+        if (cur < 0) return null;
+
+        const magic_bytes = [4]u8{
+            @intCast((block_mod.SIE_MAGIC >> 24) & 0xFF),
+            @intCast((block_mod.SIE_MAGIC >> 16) & 0xFF),
+            @intCast((block_mod.SIE_MAGIC >> 8) & 0xFF),
+            @intCast(block_mod.SIE_MAGIC & 0xFF),
+        };
+
+        while (cur > 0 and count < max_search) {
+            var actual_step = step;
+            if (cur < @as(i64, @intCast(actual_step))) {
+                actual_step = @intCast(cur);
+                count += actual_step;
+                cur = 0;
+            } else {
+                count += actual_step;
+                cur -= @intCast(actual_step);
+            }
+
+            try self.seek(cur);
+            const read_len = actual_step + 4;
+            const n = try self.read(buf[0..read_len]);
+            if (n != read_len) return null;
+
+            // Scan backwards through the buffer
+            var i: usize = actual_step;
+            while (i > 0) : (i -= 1) {
+                if (buf[i] == magic_bytes[0] and buf[i + 1] == magic_bytes[1] and
+                    buf[i + 2] == magic_bytes[2] and buf[i + 3] == magic_bytes[3])
+                {
+                    return cur + @as(i64, @intCast(i));
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// Read the block ending at the current file position (reads trailer, then seeks back to read block).
+    /// On success, positions the file cursor before the block.
+    pub fn readBlockBackward(self: *File) !block_mod.Block {
+        // Read the trailing size field (last 4 bytes of block)
+        if (self.position < 4) return error_mod.Error.InvalidBlock;
+        try self.seek(self.position - 4);
+        var size_buf: [4]u8 = undefined;
+        const n = try self.read(&size_buf);
+        if (n != 4) return error_mod.Error.UnexpectedEof;
+
+        const block_size = std.mem.readInt(u32, &size_buf, .big);
+        if (block_size < block_mod.SIE_OVERHEAD_SIZE) return error_mod.Error.InvalidBlock;
+
+        // Seek to block start
+        const block_start = self.position - 4 - @as(i64, @intCast(block_size)) + 4;
+        if (block_start < 0) return error_mod.Error.InvalidBlock;
+        try self.seek(block_start);
+
+        const blk = try self.readBlockAt(block_start);
+
+        // Position cursor before this block
+        try self.seek(block_start);
+
+        return blk;
+    }
+
+    /// Search backwards for a valid block within max_search bytes.
+    /// Returns the block if found and positions the cursor before it.
+    pub fn findBlockBackward(self: *File, max_search: usize) !block_mod.Block {
+        const start = self.position;
+        var cur = start;
+        var searched: usize = 0;
+
+        while (searched < max_search) {
+            // Try reading block backward from current position
+            try self.seek(cur);
+            if (self.readBlockBackward()) |blk| {
+                return blk;
+            } else |_| {}
+
+            // Search backwards for magic
+            try self.seek(cur);
+            const magic_pos = try self.searchBackwardsForMagic(max_search - searched) orelse
+                return error_mod.Error.InvalidBlock;
+
+            // Magic is at offset 8 in the block header, so block starts at magic_pos - 8
+            const block_start = magic_pos - 8;
+            if (block_start < 0) return error_mod.Error.InvalidBlock;
+
+            try self.seek(block_start);
+            if (self.readBlockAt(block_start)) |blk| {
+                try self.seek(block_start);
+                return blk;
+            } else |_| {}
+
+            searched += @intCast(cur - @as(i64, @intCast(magic_pos)));
+            cur = magic_pos - 8;
+        }
+
+        return error_mod.Error.InvalidBlock;
+    }
+
+    // --- Unindexed blocks ---
+
+    /// Get blocks that haven't been cataloged in the index yet.
+    /// Returns a list of (offset, group) pairs for blocks after first_unindexed.
+    pub fn getUnindexedBlocks(self: *File) !std.ArrayList(UnindexedBlock) {
+        var result = std.ArrayList(UnindexedBlock){};
+        errdefer result.deinit(self.allocator);
+
+        if (self.first_unindexed >= self.file_size) return result;
+
+        try self.seek(self.first_unindexed);
+
+        while (self.position < self.file_size) {
+            const offset = self.position;
+            const blk = self.readBlock() catch break;
+            var blk_mut = blk;
+            defer blk_mut.deinit();
+            try result.append(self.allocator, .{
+                .offset = @intCast(offset),
+                .group = blk.group,
+            });
+        }
+
+        return result;
+    }
+};
+
+/// An unindexed block entry (offset + group)
+pub const UnindexedBlock = struct {
+    offset: u64,
+    group: u32,
 };
 
 test "file open and read" {

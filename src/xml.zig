@@ -132,6 +132,40 @@ pub const Node = struct {
         return node;
     }
 
+    // ── Clone ──
+
+    /// Deep-copy this node and all its children into a new tree.
+    pub fn clone(self: *const Node, allocator: std.mem.Allocator) !*Node {
+        const copy = switch (self.node_type) {
+            .Element => blk: {
+                const n = try newElementOwned(allocator, self.name orelse "");
+                for (self.attrs.items) |attr| {
+                    try n.setAttribute(attr.name, attr.value);
+                }
+                break :blk n;
+            },
+            .Text => try newTextOwned(allocator, self.text orelse ""),
+            .Comment => try newComment(allocator, self.text orelse ""),
+            .ProcessingInstruction => try newPI(allocator, self.text orelse ""),
+        };
+        var cur = self.child;
+        while (cur) |c| {
+            const child_copy = try c.clone(allocator);
+            copy.appendChild(child_copy);
+            cur = c.next;
+        }
+        return copy;
+    }
+
+    /// Pack (compact copy) of this node and all its children.
+    /// This is the Zig equivalent of the C library's `sie_xml_pack()`.
+    /// In C, pack allocated all nodes in a single contiguous block for
+    /// memory efficiency. In Zig, this is a deep copy (identical to `clone`)
+    /// since the allocator handles memory layout.
+    pub fn pack(self: *const Node, allocator: std.mem.Allocator) !*Node {
+        return self.clone(allocator);
+    }
+
     // ── Destructor ──
 
     /// Destroy this node and all children recursively
@@ -1207,4 +1241,55 @@ test "xml entity references" {
     // Text content should have decoded entities
     const text_node = doc.child.?;
     try std.testing.expectEqualSlices(u8, "<tag>", text_node.text.?);
+}
+
+test "xml pack" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    // Build a tree: <ch id="1"><dim index="0"/><tag id="core:units">volts</tag></ch>
+    const ch = try Node.newElement(allocator, "ch");
+    defer ch.deinit();
+    try ch.setAttribute("id", "1");
+
+    const dim = try Node.newElement(allocator, "dim");
+    try dim.setAttribute("index", "0");
+    ch.appendChild(dim);
+
+    const tag_el = try Node.newElement(allocator, "tag");
+    try tag_el.setAttribute("id", "core:units");
+    const tag_text = try Node.newTextOwned(allocator, "volts");
+    tag_el.appendChild(tag_text);
+    ch.appendChild(tag_el);
+
+    // Pack (compact copy) the tree
+    const pack_copy = try ch.pack(allocator);
+    defer pack_copy.deinit();
+
+    // Packed tree is structurally identical but independent
+    try std.testing.expectEqualSlices(u8, "ch", pack_copy.getName());
+    try std.testing.expectEqualSlices(u8, "1", pack_copy.getAttribute("id").?);
+
+    // Children are preserved
+    const packed_dim = pack_copy.child.?;
+    try std.testing.expectEqualSlices(u8, "dim", packed_dim.getName());
+    try std.testing.expectEqualSlices(u8, "0", packed_dim.getAttribute("index").?);
+
+    const packed_tag = packed_dim.next.?;
+    try std.testing.expectEqualSlices(u8, "tag", packed_tag.getName());
+    try std.testing.expectEqualSlices(u8, "core:units", packed_tag.getAttribute("id").?);
+    try std.testing.expectEqualSlices(u8, "volts", packed_tag.child.?.text.?);
+
+    // Serialization matches
+    const orig_xml = try ch.toXml(allocator);
+    defer allocator.free(orig_xml);
+    const pack_xml = try pack_copy.toXml(allocator);
+    defer allocator.free(pack_xml);
+    try std.testing.expectEqualSlices(u8, orig_xml, pack_xml);
+
+    // Mutation of packed tree does not affect original
+    try pack_copy.setAttribute("id", "99");
+    try std.testing.expectEqualSlices(u8, "1", ch.getAttribute("id").?);
+    try std.testing.expectEqualSlices(u8, "99", pack_copy.getAttribute("id").?);
 }

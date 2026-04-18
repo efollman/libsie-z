@@ -76,5 +76,6 @@ files. Set up build.zig with `test` and `example` build steps.
 
 ## Original C Code
 
-The original C source (headers, autotools, contrib, docs, tarballs) is preserved
-in `libsie-c/` for reference.
+The original C source is available at
+[github.com/efollman/libsie-reference](https://github.com/efollman/libsie-reference)
+or from the [HBM/SoMat download archive](https://www.hbm.com/tw/2082/somat-download-archive/).

@@ -184,6 +184,37 @@ pub const Stream = struct {
         return @as(u32, @intCast(self.group_indexes.count()));
     }
 
+    /// Get the payload size of a specific block within a group
+    pub fn getGroupBlockSize(self: *const Stream, group_id: u32, entry: usize) u32 {
+        if (self.group_indexes.getPtr(group_id)) |idx| {
+            if (entry < idx.entries.items.len) {
+                return idx.entries.items[entry].size;
+            }
+        }
+        return 0;
+    }
+
+    /// Read a specific block from a group by entry index.
+    /// Returns a copy of the block payload in a new Block.
+    pub fn readGroupBlock(self: *Stream, group_id: u32, entry: usize) !block_mod.Block {
+        const idx = self.group_indexes.getPtr(group_id) orelse
+            return error_mod.Error.IndexOutOfBounds;
+
+        if (entry >= idx.entries.items.len)
+            return error_mod.Error.IndexOutOfBounds;
+
+        const e = idx.entries.items[entry];
+        if (e.offset + e.size > self.data.items.len)
+            return error_mod.Error.InvalidBlock;
+
+        var blk = block_mod.Block.init(self.allocator);
+        blk.expand(e.size) catch return error_mod.Error.OutOfMemory;
+        @memcpy(blk.payload[0..e.size], self.data.items[e.offset .. e.offset + e.size]);
+        blk.payload_size = e.size;
+        blk.group = idx.group_id;
+        return blk;
+    }
+
     // --- Intake vtable implementation ---
 
     pub const vtable = intake_mod.IntakeVTable{

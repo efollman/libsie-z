@@ -144,6 +144,13 @@ pub const Dimension = struct {
         }
         return null;
     }
+
+    /// Format for debug output
+    pub fn format(self: *const Dimension, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("Dimension(index={d}, name=\"{s}\", tags={d})", .{
+            self.index, self.name, self.tags.items.len,
+        });
+    }
 };
 
 test "dimension creation" {

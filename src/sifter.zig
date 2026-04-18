@@ -11,6 +11,10 @@
 const std = @import("std");
 const writer_mod = @import("writer.zig");
 const xml_mod = @import("xml.zig");
+const file_mod = @import("file.zig");
+const sie_file_mod = @import("sie_file.zig");
+const channel_mod = @import("channel.zig");
+const block_mod = @import("block.zig");
 
 /// Map type categories for ID remapping
 pub const MapType = enum(u3) {
@@ -235,6 +239,175 @@ pub const Sifter = struct {
             total += self.sig_maps[i].count();
         }
         return total;
+    }
+
+    // ── High-level pipeline: add channel and write data ──
+
+    /// Add a channel to the sifter output, mapping all referenced IDs
+    /// and writing the remapped channel XML definition to the writer.
+    pub fn addChannel(
+        self: *Sifter,
+        sie_file: *sie_file_mod.SieFile,
+        channel: *const channel_mod.Channel,
+        start_block: u64,
+        end_block: u64,
+    ) !void {
+        const intake_id: u32 = 0;
+
+        // Already mapped — skip
+        if (self.findId(.Channel, intake_id, channel.id) != null) return;
+
+        // Look up the channel's raw XML node from the definition
+        const ch_node = sie_file.xml_def.getChannel(@intCast(channel.id));
+
+        // Handle base channel (recursively add the base first)
+        if (ch_node) |node| {
+            if (node.getAttribute("base")) |base_str| {
+                const base_id = std.fmt.parseInt(u32, base_str, 10) catch null;
+                if (base_id) |bid| {
+                    if (sie_file.findChannel(bid)) |base_ch| {
+                        try self.addChannel(sie_file, base_ch, 0, std.math.maxInt(u64));
+                    }
+                }
+            }
+        }
+
+        // Map toplevel group with block range
+        if (channel.toplevel_group != 0) {
+            _ = try self.mapIdGroup(intake_id, channel.toplevel_group, start_block, end_block);
+        }
+
+        // Map channel tag groups
+        for (channel.getTags()) |t| {
+            if (t.group != 0) {
+                _ = try self.mapId(.Group, intake_id, t.group);
+            }
+        }
+
+        // Map dimension groups, decoders, and tag groups
+        for (channel.getDimensions()) |dim| {
+            if (dim.group != 0) {
+                _ = try self.mapIdGroup(intake_id, dim.group, start_block, end_block);
+            }
+            if (dim.decoder_id != 0) {
+                try self.mapDecoderId(sie_file, intake_id, dim.decoder_id);
+            }
+            for (dim.getTags()) |t| {
+                if (t.group != 0) {
+                    _ = try self.mapId(.Group, intake_id, t.group);
+                }
+            }
+        }
+
+        // Map the channel ID itself
+        _ = try self.mapId(.Channel, intake_id, channel.id);
+
+        // Clone channel XML, remap IDs, and write to output
+        if (ch_node) |node| {
+            const copy = try node.clone(self.allocator);
+            errdefer copy.deinit();
+
+            try self.remapXml(intake_id, copy);
+
+            // Map containing test and set test attribute
+            if (channel.test_id != 0) {
+                const new_test_id = try self.mapTestId(intake_id, channel.test_id);
+                var buf: [20]u8 = undefined;
+                const test_str = std.fmt.bufPrint(&buf, "{d}", .{new_test_id}) catch unreachable;
+                try copy.setAttribute("test", test_str);
+            }
+
+            try self.writer.xmlNode(copy);
+            copy.deinit();
+        }
+    }
+
+    /// Flush XML and copy all mapped group data blocks through the writer.
+    pub fn finish(self: *Sifter, file: *file_mod.File) !void {
+        self.writer.flushXml();
+
+        const gi = @intFromEnum(MapType.Group);
+        var iter = self.maps[gi].iterator();
+        while (iter.next()) |entry| {
+            const from_group = entry.value_ptr.key.from_id;
+            const new_group = entry.value_ptr.id;
+            const group_idx = file.getGroupIndex(from_group) orelse continue;
+            const num_blocks = group_idx.entries.items.len;
+            const end = if (entry.value_ptr.end_block < num_blocks)
+                entry.value_ptr.end_block
+            else
+                num_blocks;
+            var block_idx = entry.value_ptr.start_block;
+
+            while (block_idx < end) : (block_idx += 1) {
+                const file_entry = group_idx.entries.items[block_idx];
+                var blk = try file.readBlockAt(@intCast(file_entry.offset));
+                defer blk.deinit();
+                try self.writer.writeBlock(new_group, blk.getPayload());
+            }
+        }
+    }
+
+    /// Calculate the total output size including pending XML and all
+    /// mapped group data. Matches the C sie_sifter_total_size semantics.
+    pub fn sifterTotalSize(self: *const Sifter, file: *file_mod.File) u64 {
+        var num_blocks: u64 = 0;
+        var num_bytes: u64 = 0;
+
+        const gi = @intFromEnum(MapType.Group);
+        var iter = self.maps[gi].iterator();
+        while (iter.next()) |entry| {
+            const from_group = entry.value_ptr.key.from_id;
+            const group_idx = file.getGroupIndex(from_group) orelse continue;
+            const nb = group_idx.entries.items.len;
+            const start = entry.value_ptr.start_block;
+            const end = if (entry.value_ptr.end_block < nb)
+                entry.value_ptr.end_block
+            else
+                nb;
+
+            if (start > 0 or end < nb) {
+                num_blocks += end - start;
+                var i = start;
+                while (i < end) : (i += 1) {
+                    num_bytes += group_idx.entries.items[i].size;
+                }
+            } else {
+                num_blocks += nb;
+                num_bytes += group_idx.getNumBytes();
+            }
+        }
+
+        return self.writer.totalSize(num_bytes, num_blocks);
+    }
+
+    /// Map a decoder ID, writing the decoder XML definition on first encounter.
+    fn mapDecoderId(self: *Sifter, sie_file: *sie_file_mod.SieFile, intake_id: u32, from_id: u32) !void {
+        if (self.findId(.Decoder, intake_id, from_id) != null) return;
+
+        const new_id = self.writer.nextId(.Decoder);
+        try self.setId(.Decoder, intake_id, from_id, new_id);
+
+        // Get the decoder XML definition, remap, and write
+        if (sie_file.xml_def.getDecoder(@intCast(from_id))) |node| {
+            const copy = try node.clone(self.allocator);
+            defer copy.deinit();
+
+            // Set the new ID before remapping (remap will handle child elements)
+            var buf: [20]u8 = undefined;
+            const id_str = std.fmt.bufPrint(&buf, "{d}", .{new_id}) catch unreachable;
+            try copy.setAttribute("id", id_str);
+
+            try self.writer.xmlNode(copy);
+        }
+    }
+
+    /// Map a test ID, assigning a new contiguous ID on first encounter.
+    fn mapTestId(self: *Sifter, intake_id: u32, from_id: u32) !u32 {
+        if (self.findId(.Test, intake_id, from_id)) |id| return id;
+        const new_id = self.writer.nextId(.Test);
+        try self.setId(.Test, intake_id, from_id, new_id);
+        return new_id;
     }
 
     /// Walk to next node in XML tree (depth-first)

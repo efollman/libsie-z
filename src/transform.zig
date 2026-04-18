@@ -9,6 +9,8 @@
 const std = @import("std");
 const output_mod = @import("output.zig");
 const Output = output_mod.Output;
+const xml_mod = @import("xml.zig");
+const utils_mod = @import("utils.zig");
 
 /// Transform type per dimension
 pub const TransformType = enum {
@@ -89,6 +91,50 @@ pub const Transform = struct {
         var list: std.ArrayList(f64) = .{};
         try list.appendSlice(self.allocator, values);
         self.xforms[dim] = .{ .Map = .{ .values = list } };
+    }
+
+    /// Set map transform from pre-collected float64 output data.
+    /// This is the Zig equivalent of sie_transform_set_map_from_channel —
+    /// callers collect channel data via a Spigot and pass it here.
+    pub fn setMapFromOutputData(self: *Transform, dim: usize, data: []const f64) !void {
+        try self.setMap(dim, data);
+    }
+
+    /// Configure a transform dimension from an XML <xform> node.
+    /// Supports scale+offset (linear) and explicit map values.
+    /// For index-based maps that require channel data, use setMapFromOutputData separately.
+    pub fn setFromXformNode(self: *Transform, dim: usize, node: *const xml_mod.Node) !void {
+        const scale_s = node.getAttribute("scale");
+        const offset_s = node.getAttribute("offset");
+        const map_s = node.getAttribute("map");
+
+        if (scale_s != null and offset_s != null) {
+            // Linear transform: scale * value + offset
+            const scale = utils_mod.strToDouble(scale_s.?) catch return error.InvalidTransform;
+            const offset = utils_mod.strToDouble(offset_s.?) catch return error.InvalidTransform;
+            self.setLinear(dim, scale, offset);
+        } else if (map_s) |map_str| {
+            // Inline map: space-separated float values
+            if (std.mem.eql(u8, map_str, "index")) {
+                // Index map requires channel data — caller must use setMapFromOutputData
+                return error.InvalidTransform;
+            }
+            // Parse space-separated values
+            var values = std.ArrayList(f64){};
+            defer values.deinit(self.allocator);
+            var it = std.mem.splitScalar(u8, map_str, ' ');
+            while (it.next()) |token| {
+                const trimmed = std.mem.trim(u8, token, " \t");
+                if (trimmed.len == 0) continue;
+                const val = utils_mod.strToDouble(trimmed) catch continue;
+                try values.append(self.allocator, val);
+            }
+            if (values.items.len > 0) {
+                try self.setMap(dim, values.items);
+            }
+        } else {
+            return error.InvalidTransform;
+        }
     }
 
     /// Apply all transforms to the output data in-place

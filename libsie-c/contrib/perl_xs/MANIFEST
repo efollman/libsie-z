@@ -1,9 +1,0 @@
-Changes
-Makefile.PL
-MANIFEST
-ppport.h
-README
-SIE.pm
-SIE.xs
-typemap
-t/1.t

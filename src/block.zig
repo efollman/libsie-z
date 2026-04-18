@@ -217,6 +217,13 @@ pub const Block = struct {
             self.payload_size = 0;
         }
     }
+
+    /// Format for debug output
+    pub fn format(self: *const Block, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("Block(group={d}, payload={d} bytes, crc=0x{x:0>8})", .{
+            self.group, self.payload_size, self.checksum,
+        });
+    }
 };
 
 test "block create and serialize" {

@@ -155,6 +155,13 @@ pub const Channel = struct {
         self.expanded_xml = xml;
         self.expanded_xml_owned = owned;
     }
+
+    /// Format for debug output
+    pub fn format(self: *const Channel, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("Channel(id={d}, name=\"{s}\", dims={d}, tags={d})", .{
+            self.id, self.name, self.dimensions.items.len, self.tags.items.len,
+        });
+    }
 };
 
 test "channel creation" {

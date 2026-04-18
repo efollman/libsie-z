@@ -51,6 +51,15 @@ pub fn build(b: *std.Build) void {
         "test/spigot_data_test.zig",
         "test/regression_test.zig",
         "test/histogram_test.zig",
+        "test/output_test.zig",
+        "test/xml_test.zig",
+        "test/object_test.zig",
+        "test/stringtable_test.zig",
+        "test/relation_test.zig",
+        "test/id_map_test.zig",
+        "test/context_test.zig",
+        "test/xml_merge_test.zig",
+        "test/sifter_test.zig",
     };
 
     for (integration_test_files) |test_file| {
