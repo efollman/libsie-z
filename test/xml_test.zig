@@ -413,3 +413,95 @@ test "xml: get child element" {
 
     try testing.expect(doc.getChildElement("nonexistent") == null);
 }
+
+test "xml: setAttributes copies all attributes" {
+    const a = try Node.newElementOwned(testing.allocator, "src");
+    defer a.deinit();
+    try a.setAttribute("id", "1");
+    try a.setAttribute("name", "test");
+
+    const b = try Node.newElementOwned(testing.allocator, "dst");
+    defer b.deinit();
+    try b.setAttribute("id", "99"); // will be overwritten
+
+    try b.setAttributes(a);
+
+    try testing.expectEqualStrings("1", b.getAttribute("id").?);
+    try testing.expectEqualStrings("test", b.getAttribute("name").?);
+}
+
+test "xml: attributeEqual" {
+    const a = try Node.newElementOwned(testing.allocator, "a");
+    defer a.deinit();
+    try a.setAttribute("id", "5");
+    try a.setAttribute("color", "red");
+
+    const b = try Node.newElementOwned(testing.allocator, "b");
+    defer b.deinit();
+    try b.setAttribute("id", "5");
+    try b.setAttribute("color", "blue");
+
+    try testing.expect(a.attributeEqual(b, "id"));
+    try testing.expect(!a.attributeEqual(b, "color"));
+    try testing.expect(!a.attributeEqual(b, "missing"));
+}
+
+test "xml: nameEqual" {
+    const a = try Node.newElementOwned(testing.allocator, "channel");
+    defer a.deinit();
+    const b = try Node.newElementOwned(testing.allocator, "channel");
+    defer b.deinit();
+    const c = try Node.newElementOwned(testing.allocator, "test");
+    defer c.deinit();
+
+    try testing.expect(a.nameEqual(b));
+    try testing.expect(!a.nameEqual(c));
+}
+
+test "xml: find with callback" {
+    const data = "<root><a id='1'/><b id='2'><c id='3'/></b></root>";
+
+    var parser = libsie.xml.XmlParser.init(testing.allocator);
+    defer parser.deinit();
+    try parser.parse(data);
+
+    const doc = parser.getDocument() orelse return error.TestUnexpectedResult;
+
+    // Find first node with id="2"
+    const State = struct {
+        fn match(node: *Node, _: ?*anyopaque) bool {
+            if (node.getAttribute("id")) |val| {
+                return std.mem.eql(u8, val, "2");
+            }
+            return false;
+        }
+    };
+
+    const found = doc.find(doc, State.match, null, .Descend);
+    try testing.expect(found != null);
+    try testing.expectEqualStrings("b", found.?.getName());
+
+    // Find with DescendOnce (only direct children)
+    const found_once = doc.find(doc, State.match, null, .DescendOnce);
+    try testing.expect(found_once != null);
+    try testing.expectEqualStrings("b", found_once.?.getName());
+
+    // Search for id="3" with DescendOnce from root should NOT find it
+    // (it's a grandchild)
+    const State2 = struct {
+        fn match(node: *Node, _: ?*anyopaque) bool {
+            if (node.getAttribute("id")) |val| {
+                return std.mem.eql(u8, val, "3");
+            }
+            return false;
+        }
+    };
+
+    const not_found = doc.find(doc, State2.match, null, .DescendOnce);
+    try testing.expect(not_found == null);
+
+    // But with full Descend it should find it
+    const found_deep = doc.find(doc, State2.match, null, .Descend);
+    try testing.expect(found_deep != null);
+    try testing.expectEqualStrings("c", found_deep.?.getName());
+}

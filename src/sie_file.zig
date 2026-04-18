@@ -339,14 +339,32 @@ pub const SieFile = struct {
             }
         }
 
-        // Also add tags from the ch_node itself (if different from expanded)
+        // Also add tags and dimensions from the ch_node itself (if different from expanded).
+        // This is needed for channels using shorthand path notation (e.g. <ch test="0">)
+        // where the channel node carries its own dimension and tag definitions alongside
+        // a base attribute that points to a template without dimensions.
         if (ch_node != expanded) {
             var cn_child = ch_node.child;
             while (cn_child) |cnc| : (cn_child = cnc.next) {
                 if (cnc.node_type != .Element) continue;
-                if (std.mem.eql(u8, cnc.getName(), "tag")) {
+                const cn_name = cnc.getName();
+                if (std.mem.eql(u8, cn_name, "tag")) {
                     if (try self.buildTag(cnc)) |t| {
                         try ch.addTag(t);
+                    }
+                } else if (std.mem.eql(u8, cn_name, "dimension") or std.mem.eql(u8, cn_name, "dim")) {
+                    if (self.buildDimension(cnc, ch.toplevel_group)) |dim| {
+                        // Only add if this dimension index isn't already present from expanded
+                        var already_present = false;
+                        for (ch.dimensions.items) |d| {
+                            if (d.index == dim.index) {
+                                already_present = true;
+                                break;
+                            }
+                        }
+                        if (!already_present) {
+                            try ch.addDimension(dim);
+                        }
                     }
                 }
             }

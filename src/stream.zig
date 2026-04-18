@@ -184,6 +184,14 @@ pub const Stream = struct {
         return @as(u32, @intCast(self.group_indexes.count()));
     }
 
+    /// Iterate over all groups, calling `callback` for each one.
+    pub fn groupForEach(self: *Stream, callback: *const fn (group_id: u32, index: *StreamGroupIndex, extra: ?*anyopaque) void, extra: ?*anyopaque) void {
+        var iter = self.group_indexes.iterator();
+        while (iter.next()) |entry| {
+            callback(entry.key_ptr.*, entry.value_ptr, extra);
+        }
+    }
+
     /// Get the payload size of a specific block within a group
     pub fn getGroupBlockSize(self: *const Stream, group_id: u32, entry: usize) u32 {
         if (self.group_indexes.getPtr(group_id)) |idx| {
@@ -339,4 +347,42 @@ test "stream add data with valid block" {
     try std.testing.expectEqual(@as(u32, 1), stream.getNumGroups());
     try std.testing.expectEqual(@as(usize, 1), stream.getGroupNumBlocks(2));
     try std.testing.expectEqual(@as(u64, 5), stream.getGroupNumBytes(2));
+}
+
+test "stream groupForEach" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var stream = Stream.init(allocator);
+    defer stream.deinit();
+
+    // Build two blocks in different groups
+    inline for ([_]struct { group: u32, payload: []const u8 }{
+        .{ .group = 2, .payload = "hello" },
+        .{ .group = 7, .payload = "world" },
+    }) |item| {
+        var buf: [25]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buf);
+        const writer = fbs.writer();
+        writer.writeInt(u32, @intCast(item.payload.len), .big) catch unreachable;
+        writer.writeInt(u32, item.group, .big) catch unreachable;
+        writer.writeInt(u32, block_mod.SIE_MAGIC, .big) catch unreachable;
+        _ = writer.write(item.payload) catch unreachable;
+        writer.writeInt(u32, block_mod.crc32(item.payload), .big) catch unreachable;
+        writer.writeInt(u32, block_mod.SIE_MAGIC, .big) catch unreachable;
+        _ = try stream.addStreamData(&buf);
+    }
+
+    const State = struct {
+        count: u32 = 0,
+        fn callback(_: u32, _: *StreamGroupIndex, extra: ?*anyopaque) void {
+            const self: *@This() = @ptrCast(@alignCast(extra.?));
+            self.count += 1;
+        }
+    };
+
+    var state = State{};
+    stream.groupForEach(State.callback, @ptrCast(&state));
+    try std.testing.expectEqual(@as(u32, 2), state.count);
 }

@@ -20,6 +20,7 @@ pub const context = @import("context.zig");
 
 // Data structures
 pub const file = @import("file.zig");
+pub const file_stream = @import("file_stream.zig");
 pub const stream = @import("stream.zig");
 pub const test_ = @import("test.zig");
 pub const channel = @import("channel.zig");
@@ -62,6 +63,7 @@ pub const Error = err.Error;
 pub const Exception = err.Exception;
 pub const Context = context.Context;
 pub const File = file.File;
+pub const FileStream = file_stream.FileStream;
 pub const Stream = stream.Stream;
 pub const Channel = channel.Channel;
 pub const Test = test_.Test;

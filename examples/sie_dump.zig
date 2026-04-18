@@ -91,8 +91,8 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     // Get handles to stdout and stderr for output.
-    const stdout = std.io.getStdOut().writer();
-    const stderr = std.io.getStdErr().writer();
+    const stdout = std.fs.File.stdout().deprecatedWriter();
+    const stderr = std.fs.File.stderr().deprecatedWriter();
 
     try stdout.print("LibSIE {s} - SIE file dumper (Zig port)\n\n", .{libsie.version});
 

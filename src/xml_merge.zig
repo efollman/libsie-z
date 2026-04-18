@@ -270,6 +270,50 @@ fn translateName(name: []const u8) []const u8 {
     return name;
 }
 
+/// Expand shorthand ch/dim/test path attributes into nested wrapper elements.
+/// For example, `<ch test="0" id="1">` becomes `<test id="0"><ch id="1"/></test>`.
+/// This matches the C library's maybe_expand_ch_dim_path() function.
+/// Returns the outermost wrapper node, or null if no wrapping was needed.
+fn maybeExpandChDimPath(allocator: std.mem.Allocator, patch: *Node) !?*Node {
+    if (patch.node_type != .Element) return null;
+
+    // Read shorthand attributes from the original node before any wrapping
+    const dim_s = patch.getAttribute("dim");
+    const ch_s = patch.getAttribute("ch");
+    const test_s = patch.getAttribute("test");
+
+    if (dim_s == null and ch_s == null and test_s == null) return null;
+
+    var node: *Node = patch;
+
+    // Wrap innermost first: dim, then ch, then test (outermost)
+    if (dim_s) |val| {
+        const wrapper = try Node.newElementOwned(allocator, "dim");
+        try wrapper.setAttribute("index", val);
+        wrapper.appendChild(node);
+        patch.clearAttribute("dim");
+        node = wrapper;
+    }
+
+    if (ch_s) |val| {
+        const wrapper = try Node.newElementOwned(allocator, "ch");
+        try wrapper.setAttribute("id", val);
+        wrapper.appendChild(node);
+        patch.clearAttribute("ch");
+        node = wrapper;
+    }
+
+    if (test_s) |val| {
+        const wrapper = try Node.newElementOwned(allocator, "test");
+        try wrapper.setAttribute("id", val);
+        wrapper.appendChild(node);
+        patch.clearAttribute("test");
+        node = wrapper;
+    }
+
+    return node;
+}
+
 /// Merge a patch element into a target parent, finding the right position
 fn mergeElementInto(
     allocator: std.mem.Allocator,
@@ -278,11 +322,30 @@ fn mergeElementInto(
     patch: *Node,
     expansion: bool,
 ) !*Node {
-    // Apply legacy name translations
+    var effective_patch = patch;
+    var wrapper_to_free: ?*Node = null;
+
+    // After merge, clean up any wrapper nodes created by path expansion.
+    // Unlink the original patch from the wrapper chain first so the
+    // caller can still deinit it independently.
+    defer {
+        if (wrapper_to_free) |w| {
+            patch.unlink();
+            w.deinit();
+        }
+    }
+
     if (!expansion) {
-        const translated = translateName(patch.getName());
-        if (!std.mem.eql(u8, translated, patch.getName())) {
-            try patch.setNameOwned(translated);
+        // Apply legacy name translations
+        const translated = translateName(effective_patch.getName());
+        if (!std.mem.eql(u8, translated, effective_patch.getName())) {
+            try effective_patch.setNameOwned(translated);
+        }
+
+        // Expand shorthand path attributes (e.g. <ch test="0"> → <test id="0"><ch/></test>)
+        if (try maybeExpandChDimPath(allocator, effective_patch)) |wrapper| {
+            effective_patch = wrapper;
+            wrapper_to_free = wrapper;
         }
     }
 
@@ -291,10 +354,10 @@ fn mergeElementInto(
     var style: MergeStyle = .NotEqual;
 
     // Fast path for ch/test/decoder using ID maps
-    if (!expansion and (std.mem.eql(u8, patch.getName(), "ch") or std.mem.eql(u8, patch.getName(), "test") or std.mem.eql(u8, patch.getName(), "decoder"))) {
-        if (patch.getAttribute("id")) |id_str| {
+    if (!expansion and (std.mem.eql(u8, effective_patch.getName(), "ch") or std.mem.eql(u8, effective_patch.getName(), "test") or std.mem.eql(u8, effective_patch.getName(), "decoder"))) {
+        if (effective_patch.getAttribute("id")) |id_str| {
             if (std.fmt.parseInt(i32, id_str, 10)) |id| {
-                const map = defn.getMapForType(patch.getName());
+                const map = defn.getMapForType(effective_patch.getName());
                 if (map) |m| {
                     if (m.get(id)) |existing| {
                         base = existing;
@@ -309,7 +372,7 @@ fn mergeElementInto(
     if (base == null) {
         var cur = top.child;
         while (cur) |c| {
-            const s = equalForMerge(c, patch);
+            const s = equalForMerge(c, effective_patch);
             if (s != .NotEqual) {
                 base = c;
                 style = s;
@@ -321,12 +384,12 @@ fn mergeElementInto(
 
     if (base == null) {
         // No match: copy and append
-        const name = patch.getName();
+        const name = effective_patch.getName();
         var merged: *Node = undefined;
         if (std.mem.eql(u8, name, "ch") or std.mem.eql(u8, name, "test") or std.mem.eql(u8, name, "dim") or std.mem.eql(u8, name, "decoder")) {
-            merged = try mergeTree(allocator, defn, patch, expansion);
+            merged = try mergeTree(allocator, defn, effective_patch, expansion);
         } else {
-            merged = try copyTree(allocator, patch);
+            merged = try copyTree(allocator, effective_patch);
         }
         top.appendChild(merged);
         return merged;
@@ -334,11 +397,11 @@ fn mergeElementInto(
 
     switch (style) {
         .Merge => {
-            try mergeElements(allocator, base.?, patch, expansion);
+            try mergeElements(allocator, base.?, effective_patch, expansion);
             return base.?;
         },
         .Replace => {
-            const replacement = try copyTree(allocator, patch);
+            const replacement = try copyTree(allocator, effective_patch);
             top.insertAfter(replacement, base.?);
             base.?.unlink();
             base.?.deinit();
@@ -588,4 +651,69 @@ test "xml copyTree" {
     try std.testing.expectEqualSlices(u8, "child", copy_child.getName());
     try std.testing.expectEqualSlices(u8, "val", copy_child.getAttribute("key").?);
     try std.testing.expectEqualSlices(u8, "hello", copy_child.child.?.text.?);
+}
+
+test "xml definition shorthand path expansion" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var defn = XmlDefinition.init(allocator);
+    defer defn.deinit();
+
+    // Channel with test="0" shorthand should be wrapped into <test id="0"><ch/></test>
+    try defn.addString(
+        \\<sie>
+        \\  <ch test="0" id="1" name="can_ch"><dim index="0"/></ch>
+        \\  <test id="0"><tag id="desc">Test Zero</tag></test>
+        \\</sie>
+    );
+
+    // Test 0 should exist with the channel as a child
+    const test_node = defn.getTest(0);
+    try std.testing.expect(test_node != null);
+
+    // Walk test children: should find both <ch> and <tag>
+    var ch_count: usize = 0;
+    var tag_count: usize = 0;
+    var cur = test_node.?.child;
+    while (cur) |c| {
+        if (c.node_type == .Element) {
+            if (std.mem.eql(u8, c.getName(), "ch")) ch_count += 1;
+            if (std.mem.eql(u8, c.getName(), "tag")) tag_count += 1;
+        }
+        cur = c.next;
+    }
+    try std.testing.expectEqual(@as(usize, 1), ch_count);
+    try std.testing.expectEqual(@as(usize, 1), tag_count);
+}
+
+test "xml definition multiple shorthand channels same test" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var defn = XmlDefinition.init(allocator);
+    defer defn.deinit();
+
+    // Multiple channels with test="0" should all end up under the same test
+    try defn.addString(
+        \\<sie>
+        \\  <ch test="0" id="1" name="ch1"/>
+        \\  <ch test="0" id="2" name="ch2"/>
+        \\  <ch test="0" id="3" name="ch3"/>
+        \\</sie>
+    );
+
+    const test_node = defn.getTest(0);
+    try std.testing.expect(test_node != null);
+
+    var ch_count: usize = 0;
+    var cur = test_node.?.child;
+    while (cur) |c| {
+        if (c.node_type == .Element and std.mem.eql(u8, c.getName(), "ch"))
+            ch_count += 1;
+        cur = c.next;
+    }
+    try std.testing.expectEqual(@as(usize, 3), ch_count);
 }

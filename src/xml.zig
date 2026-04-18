@@ -243,6 +243,22 @@ pub const Node = struct {
         return self.attrs.items.len;
     }
 
+    /// Copy all attributes from another node onto this one.
+    /// Matches C `sie_xml_set_attributes(self, other)`.
+    pub fn setAttributes(self: *Node, other: *const Node) !void {
+        for (other.attrs.items) |attr| {
+            try self.setAttribute(attr.name, attr.value);
+        }
+    }
+
+    /// Check whether a named attribute has the same value on both nodes.
+    /// Matches C `sie_xml_attribute_equal()`.
+    pub fn attributeEqual(self: *const Node, other: *const Node, attr_name: []const u8) bool {
+        const mine = self.getAttribute(attr_name) orelse return false;
+        const theirs = other.getAttribute(attr_name) orelse return false;
+        return std.mem.eql(u8, mine, theirs);
+    }
+
     // ── Element name ──
 
     /// Get element name
@@ -257,6 +273,12 @@ pub const Node = struct {
         }
         self.name = try self.allocator.dupe(u8, new_name);
         self.owns_name = true;
+    }
+
+    /// Check whether two element nodes have the same name.
+    /// Matches C `sie_xml_name_equal()`.
+    pub fn nameEqual(self: *const Node, other: *const Node) bool {
+        return std.mem.eql(u8, self.getName(), other.getName());
     }
 
     // ── Tree manipulation ──
@@ -421,6 +443,24 @@ pub const Node = struct {
         return null;
     }
 
+    /// Generic tree search with an arbitrary match callback.
+    /// Matches C `sie_xml_find()`.
+    pub fn find(
+        self: *Node,
+        top: ?*Node,
+        match_fn: *const fn (node: *Node, data: ?*anyopaque) bool,
+        data: ?*anyopaque,
+        descend: DescendType,
+    ) ?*Node {
+        const subsequent: DescendType = if (descend == .DescendOnce) .NoDescend else descend;
+        var cur: ?*Node = self.walkNext(top, descend);
+        while (cur) |c| {
+            if (match_fn(c, data)) return c;
+            cur = c.walkNext(top, subsequent);
+        }
+        return null;
+    }
+
     /// Count child elements
     pub fn countChildren(self: *const Node) usize {
         var count: usize = 0;
@@ -433,6 +473,14 @@ pub const Node = struct {
     }
 
     // ── Output ──
+
+    /// Print this node's XML to stderr (for debugging).
+    /// Matches C `sie_xml_print()`.
+    pub fn print(self: *const Node) void {
+        const xml_str = self.toXml(self.allocator) catch return;
+        defer self.allocator.free(xml_str);
+        std.debug.print("{s}\n", .{xml_str});
+    }
 
     /// Serialize this node (and children) to XML string
     pub fn toXml(self: *const Node, allocator: std.mem.Allocator) ![]u8 {

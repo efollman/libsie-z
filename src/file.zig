@@ -257,16 +257,155 @@ pub const File = struct {
 
     // --- Group index management ---
 
-    /// Scan the file and build group indexes
+    /// Temporary entry used during backward index scanning
+    const ScanEntry = struct {
+        offset: u64,
+        total_size: u32,
+        group: u32,
+    };
+
+    /// Scan the file and build group indexes.
+    /// Uses backward scanning with index block parsing for efficient large-file indexing.
+    /// Falls back to forward-only scan if backward scanning fails.
     pub fn buildIndex(self: *File) !void {
         if (self.is_indexed) return;
 
+        self.buildIndexBackward() catch {
+            self.resetIndexState();
+            try self.buildIndexForward();
+        };
+
+        self.is_indexed = true;
+    }
+
+    /// Build index by scanning backward from EOF, parsing index blocks for
+    /// efficient random access. This is the primary indexing strategy.
+    fn buildIndexBackward(self: *File) !void {
+        self.first_unindexed = self.file_size;
+
+        try self.seek(self.file_size);
+        if (self.position <= 0) return error_mod.Error.InvalidBlock;
+
+        var scan_entries = std.ArrayList(ScanEntry){};
+        defer scan_entries.deinit(self.allocator);
+
+        var seen_index = false;
+
+        while (self.position > 0) {
+            var blk = self.readBlockBackward() catch break;
+            defer blk.deinit();
+
+            const block_offset: u64 = @intCast(self.position);
+            const total_size: u32 = blk.payload_size + @as(u32, block_mod.SIE_OVERHEAD_SIZE);
+
+            // Track unindexed blocks (those after the last index block in the file)
+            if (!seen_index) {
+                if (blk.group == block_mod.SIE_INDEX_GROUP) {
+                    seen_index = true;
+                } else {
+                    self.first_unindexed = @intCast(block_offset);
+                }
+            }
+
+            if (blk.group > self.highest_group) {
+                self.highest_group = blk.group;
+            }
+
+            try scan_entries.append(self.allocator, .{
+                .offset = block_offset,
+                .total_size = total_size,
+                .group = blk.group,
+            });
+
+            // Parse index block payload: extract indexed block entries and jump
+            // past the indexed range to avoid scanning those blocks individually
+            if (blk.group == block_mod.SIE_INDEX_GROUP) {
+                const payload = blk.getPayload();
+                if (payload.len >= 12 and payload.len % 12 == 0) {
+                    const initial_offset = try self.expandIndexBlock(
+                        payload,
+                        block_offset,
+                        &scan_entries,
+                    );
+                    if (initial_offset == 0) break;
+                    try self.seek(@intCast(initial_offset));
+                }
+            }
+        }
+
+        if (scan_entries.items.len == 0) {
+            return error_mod.Error.InvalidBlock;
+        }
+
+        // Replay scan entries in forward file order to build group indexes
+        var i: usize = scan_entries.items.len;
+        while (i > 0) {
+            i -= 1;
+            const entry = scan_entries.items[i];
+            if (entry.total_size < block_mod.SIE_OVERHEAD_SIZE) continue;
+            const payload_size = entry.total_size - @as(u32, block_mod.SIE_OVERHEAD_SIZE);
+
+            const result = try self.group_indexes.getOrPut(entry.group);
+            if (!result.found_existing) {
+                result.value_ptr.* = FileGroupIndex.init(entry.group);
+            }
+            try result.value_ptr.addEntry(self.allocator, entry.offset, payload_size);
+        }
+    }
+
+    /// Parse a SIE_INDEX_GROUP block payload and add the indexed block entries
+    /// to the scan entry list. Returns the offset of the first indexed block.
+    fn expandIndexBlock(
+        self: *File,
+        payload: []const u8,
+        idx_offset: u64,
+        scan_entries: *std.ArrayList(ScanEntry),
+    ) !u64 {
+        const num_entries = payload.len / 12;
+        if (num_entries == 0) return error_mod.Error.InvalidBlock;
+
+        // Iterate from last entry to first (reverse file order, consistent with backward scan)
+        var prev_offset: u64 = idx_offset;
+        var i: usize = num_entries;
+        while (i > 0) {
+            i -= 1;
+            const entry_base = i * 12;
+            const offset = std.mem.readInt(u64, payload[entry_base..][0..8], .big);
+            const group = std.mem.readInt(u32, payload[entry_base + 8..][0..4], .big);
+
+            // Validate offset ordering (each entry must be before the previous)
+            if (offset >= prev_offset) {
+                return error_mod.Error.InvalidBlock;
+            }
+
+            const bsize = prev_offset - offset;
+            if (bsize > std.math.maxInt(u32)) {
+                return error_mod.Error.InvalidBlock;
+            }
+
+            try scan_entries.append(self.allocator, .{
+                .offset = offset,
+                .total_size = @intCast(bsize),
+                .group = group,
+            });
+
+            if (group > self.highest_group) {
+                self.highest_group = group;
+            }
+
+            prev_offset = offset;
+        }
+
+        return std.mem.readInt(u64, payload[0..8], .big);
+    }
+
+    /// Forward-only index scan (fallback if backward scan fails).
+    fn buildIndexForward(self: *File) !void {
         try self.seek(0);
 
         while (self.position < self.file_size) {
             const block_offset = self.position;
 
-            // Try to read header
             var header_buf: [block_mod.SIE_HEADER_SIZE]u8 = undefined;
             const n = self.read(&header_buf) catch break;
             if (n != block_mod.SIE_HEADER_SIZE) break;
@@ -280,7 +419,6 @@ pub const File = struct {
             if (block_size < block_mod.SIE_OVERHEAD_SIZE) break;
             const payload_size = block_size - @as(u32, block_mod.SIE_OVERHEAD_SIZE);
 
-            // Record in group index
             const result = try self.group_indexes.getOrPut(group);
             if (!result.found_existing) {
                 result.value_ptr.* = FileGroupIndex.init(group);
@@ -291,12 +429,21 @@ pub const File = struct {
                 self.highest_group = group;
             }
 
-            // Skip payload + trailer
             const skip = @as(i64, @intCast(payload_size + block_mod.SIE_TRAILER_SIZE));
             self.seekBy(skip) catch break;
         }
+    }
 
-        self.is_indexed = true;
+    /// Reset index state for fallback from backward to forward scan.
+    fn resetIndexState(self: *File) void {
+        var iter = self.group_indexes.valueIterator();
+        while (iter.next()) |idx| {
+            var idx_mut = idx;
+            idx_mut.deinit(self.allocator);
+        }
+        self.group_indexes.clearRetainingCapacity();
+        self.highest_group = 0;
+        self.first_unindexed = 0;
     }
 
     /// Get a group index by ID
@@ -312,6 +459,15 @@ pub const File = struct {
     /// Get the highest group ID seen
     pub fn getHighestGroup(self: *const File) u32 {
         return self.highest_group;
+    }
+
+    /// Iterate over all groups, calling `callback` for each one.
+    /// Matches C `sie_file_group_foreach()`.
+    pub fn groupForEach(self: *File, callback: *const fn (group_id: u32, index: *FileGroupIndex, extra: ?*anyopaque) void, extra: ?*anyopaque) void {
+        var iter = self.group_indexes.iterator();
+        while (iter.next()) |entry| {
+            callback(entry.key_ptr.*, entry.value_ptr, extra);
+        }
     }
 
     // --- Intake vtable implementation ---
@@ -584,4 +740,95 @@ test "file group index structure" {
 
     try std.testing.expectEqual(@as(usize, 2), idx.getNumBlocks());
     try std.testing.expectEqual(@as(u64, 150), idx.getNumBytes());
+}
+
+test "expandIndexBlock parses entries correctly" {
+    const allocator = std.testing.allocator;
+
+    var file = File.init(allocator, "dummy");
+    defer file.deinit();
+
+    var scan_entries = std.ArrayList(File.ScanEntry){};
+    defer scan_entries.deinit(allocator);
+
+    // Construct index payload: 2 entries
+    // Entry 0: offset=0, group=2
+    // Entry 1: offset=100, group=3
+    // Index block at offset=200
+    var payload: [24]u8 = undefined;
+    std.mem.writeInt(u64, payload[0..8], 0, .big); // offset 0
+    std.mem.writeInt(u32, payload[8..12], 2, .big); // group 2
+    std.mem.writeInt(u64, payload[12..20], 100, .big); // offset 100
+    std.mem.writeInt(u32, payload[20..24], 3, .big); // group 3
+
+    const initial_offset = try file.expandIndexBlock(&payload, 200, &scan_entries);
+
+    try std.testing.expectEqual(@as(u64, 0), initial_offset);
+    try std.testing.expectEqual(@as(usize, 2), scan_entries.items.len);
+
+    // Entries are in reverse file order (last first)
+    try std.testing.expectEqual(@as(u64, 100), scan_entries.items[0].offset);
+    try std.testing.expectEqual(@as(u32, 3), scan_entries.items[0].group);
+    try std.testing.expectEqual(@as(u32, 100), scan_entries.items[0].total_size); // 200 - 100
+
+    try std.testing.expectEqual(@as(u64, 0), scan_entries.items[1].offset);
+    try std.testing.expectEqual(@as(u32, 2), scan_entries.items[1].group);
+    try std.testing.expectEqual(@as(u32, 100), scan_entries.items[1].total_size); // 100 - 0
+}
+
+test "expandIndexBlock rejects invalid offset ordering" {
+    const allocator = std.testing.allocator;
+
+    var file = File.init(allocator, "dummy");
+    defer file.deinit();
+
+    var scan_entries = std.ArrayList(File.ScanEntry){};
+    defer scan_entries.deinit(allocator);
+
+    // Entry 1 offset >= idx_offset (invalid: 300 >= 200)
+    var payload: [24]u8 = undefined;
+    std.mem.writeInt(u64, payload[0..8], 0, .big);
+    std.mem.writeInt(u32, payload[8..12], 2, .big);
+    std.mem.writeInt(u64, payload[12..20], 300, .big); // invalid: 300 >= idx_offset 200
+    std.mem.writeInt(u32, payload[20..24], 3, .big);
+
+    try std.testing.expectError(error_mod.Error.InvalidBlock, file.expandIndexBlock(&payload, 200, &scan_entries));
+}
+
+test "expandIndexBlock rejects payload not divisible by 12" {
+    const allocator = std.testing.allocator;
+
+    var file = File.init(allocator, "dummy");
+    defer file.deinit();
+
+    var scan_entries = std.ArrayList(File.ScanEntry){};
+    defer scan_entries.deinit(allocator);
+
+    // 10 bytes is not divisible by 12 - caller checks this, but expandIndexBlock
+    // handles 0 entries
+    var payload: [0]u8 = undefined;
+    try std.testing.expectError(error_mod.Error.InvalidBlock, file.expandIndexBlock(&payload, 200, &scan_entries));
+}
+
+test "expandIndexBlock single entry" {
+    const allocator = std.testing.allocator;
+
+    var file = File.init(allocator, "dummy");
+    defer file.deinit();
+
+    var scan_entries = std.ArrayList(File.ScanEntry){};
+    defer scan_entries.deinit(allocator);
+
+    // Single entry: offset=50, group=5, index block at 100
+    var payload: [12]u8 = undefined;
+    std.mem.writeInt(u64, payload[0..8], 50, .big);
+    std.mem.writeInt(u32, payload[8..12], 5, .big);
+
+    const initial_offset = try file.expandIndexBlock(&payload, 100, &scan_entries);
+
+    try std.testing.expectEqual(@as(u64, 50), initial_offset);
+    try std.testing.expectEqual(@as(usize, 1), scan_entries.items.len);
+    try std.testing.expectEqual(@as(u64, 50), scan_entries.items[0].offset);
+    try std.testing.expectEqual(@as(u32, 5), scan_entries.items[0].group);
+    try std.testing.expectEqual(@as(u32, 50), scan_entries.items[0].total_size); // 100 - 50
 }

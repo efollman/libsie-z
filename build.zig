@@ -3,7 +3,6 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    _ = optimize;
 
     // Run test suite
     const test_step = b.step("test", "Run tests");
@@ -11,10 +10,14 @@ pub fn build(b: *std.Build) void {
     // Example/demo build step
     const example_step = b.step("example", "Build sie_dump example");
 
+    // Shared library build step
+    const lib_step = b.step("lib", "Build shared library");
+
     // Create the libsie module
     const libsie_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
+        .optimize = optimize,
     });
 
     // Build sie_dump example
@@ -30,6 +33,19 @@ pub fn build(b: *std.Build) void {
     });
     const install_example = b.addInstallArtifact(sie_dump, .{});
     example_step.dependOn(&install_example.step);
+
+    // Build shared library
+    const shared_lib = b.addLibrary(.{
+        .name = "sie",
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/root.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const install_lib = b.addInstallArtifact(shared_lib, .{});
+    lib_step.dependOn(&install_lib.step);
 
     // Unit tests from src/
     const main_tests = b.addTest(.{
@@ -60,6 +76,7 @@ pub fn build(b: *std.Build) void {
         "test/context_test.zig",
         "test/xml_merge_test.zig",
         "test/sifter_test.zig",
+        "test/file_stream_test.zig",
     };
 
     for (integration_test_files) |test_file| {

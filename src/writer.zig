@@ -186,7 +186,7 @@ pub const Writer = struct {
         return total;
     }
 
-    fn flushIndex(self: *Writer) void {
+    pub fn flushIndex(self: *Writer) void {
         if (self.index_buf.items.len > 0) {
             self.writeBlock(SIE_INDEX_GROUP, self.index_buf.items) catch {};
         }
