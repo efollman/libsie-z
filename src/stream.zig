@@ -40,11 +40,11 @@ pub const StreamGroupIndex = struct {
         self.payload_size += size;
     }
 
-    pub fn getNumBlocks(self: *const StreamGroupIndex) usize {
+    pub fn numBlocks(self: *const StreamGroupIndex) usize {
         return self.entries.items.len;
     }
 
-    pub fn getNumBytes(self: *const StreamGroupIndex) u64 {
+    pub fn numBytes(self: *const StreamGroupIndex) u64 {
         return self.payload_size;
     }
 };
@@ -153,7 +153,7 @@ pub const Stream = struct {
     /// Get number of blocks in a group
     pub fn getGroupNumBlocks(self: *const Stream, group_id: u32) usize {
         if (self.group_indexes.getPtr(group_id)) |idx| {
-            return idx.getNumBlocks();
+            return idx.numBlocks();
         }
         return 0;
     }
@@ -161,7 +161,7 @@ pub const Stream = struct {
     /// Get total payload bytes in a group
     pub fn getGroupNumBytes(self: *const Stream, group_id: u32) u64 {
         if (self.group_indexes.getPtr(group_id)) |idx| {
-            return idx.getNumBytes();
+            return idx.numBytes();
         }
         return 0;
     }
@@ -180,7 +180,7 @@ pub const Stream = struct {
     }
 
     /// Get number of groups seen so far
-    pub fn getNumGroups(self: *const Stream) u32 {
+    pub fn numGroups(self: *const Stream) u32 {
         return @as(u32, @intCast(self.group_indexes.count()));
     }
 
@@ -217,7 +217,7 @@ pub const Stream = struct {
 
         var blk = block_mod.Block.init(self.allocator);
         blk.expand(e.size) catch return error_mod.Error.OutOfMemory;
-        @memcpy(blk.payload[0..e.size], self.data.items[e.offset .. e.offset + e.size]);
+        @memcpy(blk.payload_buf[0..e.size], self.data.items[e.offset .. e.offset + e.size]);
         blk.payload_size = e.size;
         blk.group = idx.group_id;
         return blk;
@@ -247,13 +247,13 @@ pub const Stream = struct {
     fn vtableGetGroupNumBlocks(ctx: *anyopaque, handle: intake_mod.GroupHandle) usize {
         const idx: *StreamGroupIndex = @ptrCast(@alignCast(handle));
         _ = ctx;
-        return idx.getNumBlocks();
+        return idx.numBlocks();
     }
 
     fn vtableGetGroupNumBytes(ctx: *anyopaque, handle: intake_mod.GroupHandle) u64 {
         const idx: *StreamGroupIndex = @ptrCast(@alignCast(handle));
         _ = ctx;
-        return idx.getNumBytes();
+        return idx.numBytes();
     }
 
     fn vtableGetGroupBlockSize(ctx: *anyopaque, handle: intake_mod.GroupHandle, entry: usize) u32 {
@@ -280,7 +280,7 @@ pub const Stream = struct {
         }
 
         blk.expand(e.size) catch return error_mod.Error.OutOfMemory;
-        @memcpy(blk.payload[0..e.size], self.data.items[e.offset .. e.offset + e.size]);
+        @memcpy(blk.payload_buf[0..e.size], self.data.items[e.offset .. e.offset + e.size]);
         blk.payload_size = e.size;
         blk.group = idx.group_id;
     }
@@ -318,7 +318,7 @@ test "stream initialization" {
     var stream = Stream.init(allocator);
     defer stream.deinit();
 
-    try std.testing.expectEqual(@as(u32, 0), stream.getNumGroups());
+    try std.testing.expectEqual(@as(u32, 0), stream.numGroups());
     try std.testing.expectEqual(@as(usize, 0), stream.getData().len);
 }
 
@@ -344,7 +344,7 @@ test "stream add data with valid block" {
 
     _ = try stream.addStreamData(&buf);
 
-    try std.testing.expectEqual(@as(u32, 1), stream.getNumGroups());
+    try std.testing.expectEqual(@as(u32, 1), stream.numGroups());
     try std.testing.expectEqual(@as(usize, 1), stream.getGroupNumBlocks(2));
     try std.testing.expectEqual(@as(u64, 5), stream.getGroupNumBytes(2));
 }

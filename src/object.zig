@@ -48,10 +48,10 @@ pub const TypedObject = union(ObjectType) {
     /// Get name from the underlying object (if it has one)
     pub fn getName(self: TypedObject) ?[]const u8 {
         return switch (self) {
-            .Test => |t| t.getName(),
-            .Channel => |c| c.getName(),
-            .Dimension => |d| d.getName(),
-            .Tag => |t| t.getId(),
+            .Test => |t| t.name,
+            .Channel => |c| c.name,
+            .Dimension => |d| d.name,
+            .Tag => |t| t.key,
             else => null,
         };
     }
@@ -59,10 +59,10 @@ pub const TypedObject = union(ObjectType) {
     /// Get ID from the underlying object (if it has one)
     pub fn getId(self: TypedObject) ?u32 {
         return switch (self) {
-            .Test => |t| t.getId(),
-            .Channel => |c| c.getId(),
-            .Dimension => |d| d.getIndex(),
-            .Group => |g| g.getId(),
+            .Test => |t| t.id,
+            .Channel => |c| c.id,
+            .Dimension => |d| d.index,
+            .Group => |g| g.id,
             else => null,
         };
     }
@@ -70,9 +70,9 @@ pub const TypedObject = union(ObjectType) {
     /// Get tags from the underlying object (if it supports them)
     pub fn getTags(self: TypedObject) ?[]const tag_mod.Tag {
         return switch (self) {
-            .Test => |t| t.getTags(),
-            .Channel => |c| c.getTags(),
-            .Dimension => |d| d.getTags(),
+            .Test => |t| t.tags(),
+            .Channel => |c| c.tags(),
+            .Dimension => |d| d.tags(),
             else => null,
         };
     }

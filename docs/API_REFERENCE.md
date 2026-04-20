@@ -196,25 +196,25 @@ allocation or cleanup needed.
 
 ```zig
 // Tests
-const tests = sf.getTests();            // []Test
+const tests = sf.tests();            // []test_mod.Test
 for (tests) |*test_obj| { ... }
 
 // Channels (from a test)
-const channels = test_obj.getChannels(); // []const Channel
+const channels = test_obj.channels(); // []const Channel
 for (channels) |*ch| { ... }
 
 // All channels in the file (flat)
-const all_ch = sf.getAllChannels();       // []*Channel
+const all_ch = sf.channels();       // []*Channel
 for (all_ch) |ch| { ... }
 
 // Dimensions
-const dims = ch.getDimensions();         // []const Dimension
+const dims = ch.dimensions();         // []const Dimension
 for (dims) |*dim| { ... }
 
 // Tags (on any level)
-const tags = sf.getFileTags();           // []const Tag  (file-level)
-const tags2 = ch.getTags();              // []const Tag  (channel-level)
-const tags3 = dim.getTags();             // []const Tag  (dimension-level)
+const tags = sf.fileTags();           // []const Tag  (file-level)
+const tags2 = ch.tags();              // []const Tag  (channel-level)
+const tags3 = dim.tags();             // []const Tag  (dimension-level)
 ```
 
 > *From the C reference:*
@@ -232,7 +232,7 @@ const tags3 = dim.getTags();             // []const Tag  (dimension-level)
 ```zig
 const test_obj = sf.findTest(42);            // ?*Test
 const ch = sf.findChannel(7);               // ?*Channel
-const dim = ch.getDimension(0);             // ?*const Dimension
+const dim = ch.dimension(0);             // ?*const Dimension
 const tag = ch.findTag("core:schema");      // ?*const Tag
 ```
 
@@ -246,7 +246,7 @@ All return optionals — `null` if not found.
 **Zig equivalent:**
 
 ```zig
-if (sf.getContainingTest(ch)) |test_obj| {
+if (sf.containingTest(ch)) |test_obj| {
     // Channel belongs to this test
 } else {
     // Channel is not in a test
@@ -266,17 +266,17 @@ public fields:
 
 ```zig
 // Channels
-ch.getId()       // u32
-ch.getName()     // []const u8
-ch.getTestId()   // u32
+ch.id       // u32
+ch.name     // []const u8
+ch.test_id   // u32
 
 // Tests
 test_obj.id      // u32 (direct field)
 test_obj.name    // []const u8 (direct field)
 
 // Dimensions
-dim.getIndex()   // u32
-dim.getName()    // []const u8
+dim.index   // u32
+dim.name    // []const u8
 ```
 
 ---
@@ -300,13 +300,13 @@ dim.getName()    // []const u8
 borrowed slices:
 
 ```zig
-const key = tag.getId();            // []const u8 — the tag key
-const str = tag.getString();        // ?[]const u8 — null for binary tags
-const bin = tag.getBinary();        // ?[]const u8 — null for string tags
-const size = tag.getValueSize();    // usize
+const key = tag.key;            // []const u8 — the tag key
+const str = tag.string();        // ?[]const u8 — null for binary tags
+const bin = tag.binary();        // ?[]const u8 — null for string tags
+const size = tag.valueSize();    // usize
 const is_str = tag.isString();      // bool
 const is_bin = tag.isBinary();      // bool
-const group = tag.getGroup();       // u32
+const group = tag.group;       // u32
 const from_grp = tag.isFromGroup(); // bool
 ```
 
@@ -435,9 +435,9 @@ output.num_dims    // usize — number of dimensions
 output.num_rows    // usize — number of rows
 
 // Per-cell accessors:
-output.getFloat64(dim, row)       // ?f64
-output.getRaw(dim, row)           // ?Output.RawData
-output.getDimensionType(dim)      // ?Output.OutputType (.None, .Float64, .Raw)
+output.float64(dim, row)       // ?f64
+output.raw(dim, row)           // ?Output.RawData
+output.dimensionType(dim)      // ?Output.OutputType (.None, .Float64, .Raw)
 ```
 
 **Key difference from C:** The C API provided two access patterns:
@@ -451,7 +451,7 @@ optionals.  This is safer (bounds-checked) and more ergonomic:
 //   value = os->dim[d].float64[row];
 
 // Zig style:
-if (output.getFloat64(d, row)) |value| {
+if (output.float64(d, row)) |value| {
     // use value
 }
 ```
@@ -464,7 +464,7 @@ if (output.getFloat64(d, row)) |value| {
 **Zig equivalent:**
 
 ```zig
-if (output.getRaw(dim, row)) |raw| {
+if (output.raw(dim, row)) |raw| {
     raw.ptr   // []const u8 — the raw data bytes
     raw.size  // u32 — size in bytes
 }

@@ -7,7 +7,7 @@
 // Usage:
 //   var sf = try SieFile.open(allocator, "data.sie");
 //   defer sf.deinit();
-//   for (sf.getTests()) |*test_obj| { ... }
+//   for (sf.tests()) |*test_obj| { ... }
 
 const std = @import("std");
 const file_mod = @import("file.zig");
@@ -32,7 +32,7 @@ pub const SieFile = struct {
     file: file_mod.File,
     xml_def: xml_merge_mod.XmlDefinition,
 
-    tests: std.ArrayList(test_mod.Test),
+    test_list: std.ArrayList(test_mod.Test),
     all_channels: std.ArrayList(*channel_mod.Channel), // pointers into tests' channels
     file_tags: std.ArrayList(tag_mod.Tag),
 
@@ -48,7 +48,7 @@ pub const SieFile = struct {
             .allocator = allocator,
             .file = file_mod.File.init(allocator, path),
             .xml_def = xml_merge_mod.XmlDefinition.init(allocator),
-            .tests = .{},
+            .test_list = .{},
             .all_channels = .{},
             .file_tags = .{},
             .compiled_decoders = std.AutoHashMap(i32, decoder_mod.Decoder).init(allocator),
@@ -80,8 +80,8 @@ pub const SieFile = struct {
         for (self.file_tags.items) |*t| t.deinit();
         self.file_tags.deinit(self.allocator);
 
-        for (self.tests.items) |*t| t.deinit();
-        self.tests.deinit(self.allocator);
+        for (self.test_list.items) |*t| t.deinit();
+        self.test_list.deinit(self.allocator);
 
         var dec_iter = self.compiled_decoders.valueIterator();
         while (dec_iter.next()) |d| {
@@ -99,23 +99,23 @@ pub const SieFile = struct {
     // ── Navigation API ──
 
     /// Get all tests
-    pub fn getTests(self: *SieFile) []test_mod.Test {
-        return self.tests.items;
+    pub fn tests(self: *SieFile) []test_mod.Test {
+        return self.test_list.items;
     }
 
     /// Get all channels (across all tests)
-    pub fn getAllChannels(self: *SieFile) []*channel_mod.Channel {
+    pub fn channels(self: *SieFile) []*channel_mod.Channel {
         return self.all_channels.items;
     }
 
     /// Get file-level tags (from the <sie> element)
-    pub fn getFileTags(self: *SieFile) []const tag_mod.Tag {
+    pub fn fileTags(self: *SieFile) []const tag_mod.Tag {
         return self.file_tags.items;
     }
 
     /// Find a test by ID
     pub fn findTest(self: *SieFile, id: u32) ?*test_mod.Test {
-        for (self.tests.items) |*t| {
+        for (self.test_list.items) |*t| {
             if (t.id == id) return t;
         }
         return null;
@@ -130,18 +130,8 @@ pub const SieFile = struct {
     }
 
     /// Get the containing test for a channel
-    pub fn getContainingTest(self: *SieFile, ch: *const channel_mod.Channel) ?*test_mod.Test {
+    pub fn containingTest(self: *SieFile, ch: *const channel_mod.Channel) ?*test_mod.Test {
         return self.findTest(ch.test_id);
-    }
-
-    /// Get the underlying file handle
-    pub fn getFile(self: *SieFile) *file_mod.File {
-        return &self.file;
-    }
-
-    /// Get the XML definition
-    pub fn getXmlDef(self: *SieFile) *xml_merge_mod.XmlDefinition {
-        return &self.xml_def;
     }
 
     /// Attach a spigot to a channel for reading data
@@ -155,20 +145,25 @@ pub const SieFile = struct {
     }
 
     /// Get a compiled decoder by ID
-    pub fn getDecoder(self: *SieFile, id: i32) ?*const decoder_mod.Decoder {
+    pub fn decoder(self: *SieFile, id: i32) ?*const decoder_mod.Decoder {
         return self.compiled_decoders.getPtr(id);
+    }
+
+    /// Get the number of compiled decoders
+    pub fn numDecoders(self: *const SieFile) usize {
+        return self.compiled_decoders.count();
     }
 
     // ── Internal: XML parsing ──
 
     fn parseXml(self: *SieFile) !void {
-        const idx = self.file.getGroupIndex(block_mod.SIE_XML_GROUP) orelse return;
+        const idx = self.file.groupIndex(block_mod.SIE_XML_GROUP) orelse return;
 
         for (idx.entries.items) |entry| {
             var blk = try self.file.readBlockAt(@intCast(entry.offset));
             defer blk.deinit();
-            const payload = blk.getPayload();
-            try self.xml_def.addString(payload);
+            const pl = blk.payload();
+            try self.xml_def.addString(pl);
         }
 
         // Force close the root <sie> element (SIE files don't include </sie>)
@@ -196,7 +191,7 @@ pub const SieFile = struct {
                 dim_regs[i] = @intCast(v);
             }
 
-            var decoder = try decoder_mod.Decoder.init(
+            var dec = try decoder_mod.Decoder.init(
                 self.allocator,
                 result.bytecode,
                 dim_regs,
@@ -204,8 +199,8 @@ pub const SieFile = struct {
                 result.initial_registers,
             );
             // Store — decoder owns its duped data
-            try self.compiled_decoders.put(id, decoder);
-            _ = &decoder;
+            try self.compiled_decoders.put(id, dec);
+            _ = &dec;
         }
     }
 
@@ -240,8 +235,8 @@ pub const SieFile = struct {
             if (test_obj == null) {
                 const test_name = node.getAttribute("name") orelse "";
                 const new_test = test_mod.Test.init(self.allocator, test_id, test_name);
-                try self.tests.append(self.allocator, new_test);
-                test_obj = &self.tests.items[self.tests.items.len - 1];
+                try self.test_list.append(self.allocator, new_test);
+                test_obj = &self.test_list.items[self.test_list.items.len - 1];
             }
 
             // Add tags and channels from this <test> element
@@ -261,7 +256,7 @@ pub const SieFile = struct {
 
                     // Check if this channel already exists in this test
                     var already_exists = false;
-                    for (test_obj.?.getChannelsMut()) |*existing_ch| {
+                    for (test_obj.?.channelsMut()) |*existing_ch| {
                         if (existing_ch.id == @as(u32, @intCast(ch_id))) {
                             // Merge additional tags into existing channel
                             var merge_child = c.child;
@@ -285,8 +280,8 @@ pub const SieFile = struct {
         }
 
         // Build the all_channels index (pointers into tests' channel arrays)
-        for (self.tests.items) |*t| {
-            for (t.channels.items) |*ch| {
+        for (self.test_list.items) |*t| {
+            for (t.channel_list.items) |*ch| {
                 try self.all_channels.append(self.allocator, ch);
             }
         }
@@ -356,7 +351,7 @@ pub const SieFile = struct {
                     if (self.buildDimension(cnc, ch.toplevel_group)) |dim| {
                         // Only add if this dimension index isn't already present from expanded
                         var already_present = false;
-                        for (ch.dimensions.items) |d| {
+                        for (ch.dim_list.items) |d| {
                             if (d.index == dim.index) {
                                 already_present = true;
                                 break;
@@ -484,17 +479,17 @@ test "SieFile: open and read hierarchy" {
     defer sf.deinit();
 
     // Should have at least one test
-    const tests = sf.getTests();
+    const tests = sf.tests();
     try testing.expect(tests.len >= 1);
 
     // Should have channels
-    const channels = sf.getAllChannels();
+    const channels = sf.channels();
     try testing.expect(channels.len >= 1);
 
     // First channel should have dimensions
     if (channels.len > 0) {
         const ch = channels[0];
-        try testing.expect(ch.getNumDimensions() >= 1);
+        try testing.expect(ch.dimensions().len >= 1);
     }
 }
 
@@ -511,7 +506,7 @@ test "SieFile: compiled decoders exist" {
     defer sf.deinit();
 
     // Should have at least one compiled decoder
-    try testing.expect(sf.compiled_decoders.count() >= 1);
+    try testing.expect(sf.numDecoders() >= 1);
 }
 
 test "SieFile: channel has decoder info" {
@@ -526,10 +521,10 @@ test "SieFile: channel has decoder info" {
     };
     defer sf.deinit();
 
-    const channels = sf.getAllChannels();
+    const channels = sf.channels();
     if (channels.len > 0) {
         const ch = channels[0];
-        const dims = ch.getDimensions();
+        const dims = ch.dimensions();
         if (dims.len > 0) {
             // Dimension should reference a decoder
             try testing.expect(dims[0].decoder_id > 0);

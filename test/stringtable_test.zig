@@ -5,7 +5,7 @@ const std = @import("std");
 const libsie = @import("libsie");
 const testing = std.testing;
 
-const StringTable = libsie.stringtable.StringTable;
+const StringTable = libsie.advanced.stringtable.StringTable;
 
 test "stringtable: interning deduplication" {
     // Port of test_stringtable — same string returns same pointer

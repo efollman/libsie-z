@@ -6,7 +6,7 @@ const libsie = @import("libsie");
 const testing = std.testing;
 
 const SieFile = libsie.SieFile;
-const Histogram = libsie.histogram.Histogram;
+const Histogram = libsie.advanced.histogram.Histogram;
 
 const comprehensive2_sie = "test/data/sie_comprehensive2_VBM_20050908.sie";
 
@@ -62,8 +62,8 @@ test "histogram: 1D basic accessors" {
     try testing.expectEqual(@as(usize, 3), output.num_dims);
 
     // The first scan's lower/upper bounds should match one of our histogram bounds
-    const first_lower = output.getFloat64(1, 0) orelse return error.TestUnexpectedResult;
-    const first_upper = output.getFloat64(2, 0) orelse return error.TestUnexpectedResult;
+    const first_lower = output.float64(1, 0) orelse return error.TestUnexpectedResult;
+    const first_upper = output.float64(2, 0) orelse return error.TestUnexpectedResult;
 
     // Verify these bounds exist in our histogram
     const bound_idx = hist.findBound(0, first_lower, first_upper);
@@ -102,8 +102,8 @@ test "histogram: 2D basic accessors" {
     for (0..9) |i| {
         const scan = i * 13;
         if (scan < output.num_rows) {
-            const sp_lower = output.getFloat64(1, scan) orelse continue;
-            const sp_upper = output.getFloat64(2, scan) orelse continue;
+            const sp_lower = output.float64(1, scan) orelse continue;
+            const sp_upper = output.float64(2, scan) orelse continue;
             try testing.expectApproxEqAbs(d0_lower[i], sp_lower, 1e-10);
             try testing.expectApproxEqAbs(d0_upper[i], sp_upper, 1e-10);
         }
@@ -116,8 +116,8 @@ test "histogram: 2D basic accessors" {
 
     for (0..13) |i| {
         if (i < output.num_rows) {
-            const sp_lower = output.getFloat64(3, i) orelse continue;
-            const sp_upper = output.getFloat64(4, i) orelse continue;
+            const sp_lower = output.float64(3, i) orelse continue;
+            const sp_upper = output.float64(4, i) orelse continue;
             try testing.expectApproxEqAbs(d1_lower[i], sp_lower, 1e-10);
             try testing.expectApproxEqAbs(d1_upper[i], sp_upper, 1e-10);
         }

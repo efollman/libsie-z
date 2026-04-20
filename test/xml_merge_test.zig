@@ -5,8 +5,8 @@ const std = @import("std");
 const libsie = @import("libsie");
 const testing = std.testing;
 
-const XmlDefinition = libsie.xml_merge.XmlDefinition;
-const Node = libsie.xml.Node;
+const XmlDefinition = libsie.advanced.xml_merge.XmlDefinition;
+const Node = libsie.advanced.xml.Node;
 
 test "xml_merge: definition merge with base expansion" {
     // Port of test_merge1 — comprehensive merge test

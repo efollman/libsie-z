@@ -157,17 +157,17 @@ pub const FileStream = struct {
     }
 
     /// Get a group index by ID
-    pub fn getGroupIndex(self: *FileStream, group_id: u32) ?*file_mod.FileGroupIndex {
+    pub fn groupIndex(self: *FileStream, group_id: u32) ?*file_mod.FileGroupIndex {
         return self.group_indexes.getPtr(group_id);
     }
 
     /// Get number of groups
-    pub fn getNumGroups(self: *const FileStream) u32 {
+    pub fn numGroups(self: *const FileStream) u32 {
         return @as(u32, @intCast(self.group_indexes.count()));
     }
 
     /// Get highest group ID seen
-    pub fn getHighestGroup(self: *const FileStream) u32 {
+    pub fn highestGroup(self: *const FileStream) u32 {
         return self.highest_group;
     }
 
@@ -217,7 +217,7 @@ pub const FileStream = struct {
             .payload_size = payload_size,
             .max_size = payload_size,
             .checksum = checksum,
-            .payload = payload,
+            .payload_buf = payload,
         };
     }
 
@@ -240,7 +240,7 @@ pub const FileStream = struct {
 
     fn vtableGetGroupHandle(ctx: *anyopaque, group: u32) ?intake_mod.GroupHandle {
         const self = ptrFromOpaque(ctx);
-        if (self.getGroupIndex(group)) |ptr| {
+        if (self.groupIndex(group)) |ptr| {
             return @ptrCast(ptr);
         }
         return null;
@@ -248,12 +248,12 @@ pub const FileStream = struct {
 
     fn vtableGetGroupNumBlocks(_: *anyopaque, handle: intake_mod.GroupHandle) usize {
         const idx: *file_mod.FileGroupIndex = @ptrCast(@alignCast(handle));
-        return idx.getNumBlocks();
+        return idx.numBlocks();
     }
 
     fn vtableGetGroupNumBytes(_: *anyopaque, handle: intake_mod.GroupHandle) u64 {
         const idx: *file_mod.FileGroupIndex = @ptrCast(@alignCast(handle));
-        return idx.getNumBytes();
+        return idx.numBytes();
     }
 
     fn vtableGetGroupBlockSize(_: *anyopaque, handle: intake_mod.GroupHandle, entry: usize) u32 {
@@ -282,9 +282,9 @@ pub const FileStream = struct {
         blk.checksum = block_read.checksum;
 
         if (blk.max_size > 0) {
-            self.allocator.free(blk.payload);
+            self.allocator.free(blk.payload_buf);
         }
-        blk.payload = block_read.payload;
+        blk.payload_buf = block_read.payload_buf;
         blk.max_size = block_read.max_size;
     }
 

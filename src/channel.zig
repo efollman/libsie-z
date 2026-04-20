@@ -27,10 +27,10 @@ pub const Channel = struct {
     test_id: u32 = 0,
 
     // Dimensions (axes of data)
-    dimensions: std.ArrayList(dimension_mod.Dimension),
+    dim_list: std.ArrayList(dimension_mod.Dimension),
 
     // Tags (metadata key-value pairs)
-    tags: std.ArrayList(tag_mod.Tag),
+    tag_list: std.ArrayList(tag_mod.Tag),
 
     // Raw and expanded XML definitions
     raw_xml: ?[]const u8 = null,
@@ -45,22 +45,22 @@ pub const Channel = struct {
             .ref = ref_mod.Ref.init(.Channel),
             .id = id,
             .name = name,
-            .dimensions = .{},
-            .tags = .{},
+            .dim_list = .{},
+            .tag_list = .{},
         };
     }
 
     /// Clean up channel and all owned sub-objects
     pub fn deinit(self: *Channel) void {
-        for (self.dimensions.items) |*dim| {
+        for (self.dim_list.items) |*dim| {
             dim.deinit();
         }
-        self.dimensions.deinit(self.allocator);
+        self.dim_list.deinit(self.allocator);
 
-        for (self.tags.items) |*t| {
+        for (self.tag_list.items) |*t| {
             t.deinit();
         }
-        self.tags.deinit(self.allocator);
+        self.tag_list.deinit(self.allocator);
 
         if (self.raw_xml_owned) {
             if (self.raw_xml) |xml| {
@@ -76,61 +76,41 @@ pub const Channel = struct {
 
     // --- Identity ---
 
-    /// Get channel ID
-    pub fn getId(self: *const Channel) u32 {
-        return self.id;
-    }
-
-    /// Get channel name
-    pub fn getName(self: *const Channel) []const u8 {
-        return self.name;
-    }
-
-    /// Get containing test ID
-    pub fn getTestId(self: *const Channel) u32 {
-        return self.test_id;
-    }
-
     // --- Dimensions ---
 
     /// Add a dimension to this channel
     pub fn addDimension(self: *Channel, dim: dimension_mod.Dimension) !void {
-        try self.dimensions.append(self.allocator, dim);
+        try self.dim_list.append(self.allocator, dim);
     }
 
     /// Get all dimensions
-    pub fn getDimensions(self: *const Channel) []const dimension_mod.Dimension {
-        return self.dimensions.items;
+    pub fn dimensions(self: *const Channel) []const dimension_mod.Dimension {
+        return self.dim_list.items;
     }
 
     /// Get dimension by index
-    pub fn getDimension(self: *const Channel, index: u32) ?*const dimension_mod.Dimension {
-        for (self.dimensions.items) |*dim| {
-            if (dim.index == index) return dim;
+    pub fn dimension(self: *const Channel, idx: u32) ?*const dimension_mod.Dimension {
+        for (self.dim_list.items) |*dim| {
+            if (dim.index == idx) return dim;
         }
         return null;
-    }
-
-    /// Get number of dimensions
-    pub fn getNumDimensions(self: *const Channel) usize {
-        return self.dimensions.items.len;
     }
 
     // --- Tags ---
 
     /// Add a tag to this channel
     pub fn addTag(self: *Channel, t: tag_mod.Tag) !void {
-        try self.tags.append(self.allocator, t);
+        try self.tag_list.append(self.allocator, t);
     }
 
     /// Get all tags
-    pub fn getTags(self: *const Channel) []const tag_mod.Tag {
-        return self.tags.items;
+    pub fn tags(self: *const Channel) []const tag_mod.Tag {
+        return self.tag_list.items;
     }
 
     /// Find a tag by key
     pub fn findTag(self: *const Channel, key: []const u8) ?*const tag_mod.Tag {
-        for (self.tags.items) |*t| {
+        for (self.tag_list.items) |*t| {
             if (std.mem.eql(u8, t.key, key)) return t;
         }
         return null;
@@ -159,7 +139,7 @@ pub const Channel = struct {
     /// Format for debug output
     pub fn format(self: *const Channel, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         try writer.print("Channel(id={d}, name=\"{s}\", dims={d}, tags={d})", .{
-            self.id, self.name, self.dimensions.items.len, self.tags.items.len,
+            self.id, self.name, self.dim_list.items.len, self.tag_list.items.len,
         });
     }
 };
@@ -172,9 +152,9 @@ test "channel creation" {
     var channel = Channel.init(allocator, 1, "Temperature");
     defer channel.deinit();
 
-    try std.testing.expectEqual(@as(u32, 1), channel.getId());
-    try std.testing.expectEqualSlices(u8, "Temperature", channel.getName());
-    try std.testing.expectEqual(@as(usize, 0), channel.getNumDimensions());
+    try std.testing.expectEqual(@as(u32, 1), channel.id);
+    try std.testing.expectEqualSlices(u8, "Temperature", channel.name);
+    try std.testing.expectEqual(@as(usize, 0), channel.dimensions().len);
 }
 
 test "channel with dimensions" {
@@ -191,15 +171,15 @@ test "channel with dimensions" {
     try channel.addDimension(dim_time);
     try channel.addDimension(dim_amp);
 
-    try std.testing.expectEqual(@as(usize, 2), channel.getNumDimensions());
+    try std.testing.expectEqual(@as(usize, 2), channel.dimensions().len);
 
-    const d0 = channel.getDimension(0);
+    const d0 = channel.dimension(0);
     try std.testing.expect(d0 != null);
-    try std.testing.expectEqualSlices(u8, "Time", d0.?.getName());
+    try std.testing.expectEqualSlices(u8, "Time", d0.?.name);
 
-    const d1 = channel.getDimension(1);
+    const d1 = channel.dimension(1);
     try std.testing.expect(d1 != null);
-    try std.testing.expectEqualSlices(u8, "Amplitude", d1.?.getName());
+    try std.testing.expectEqualSlices(u8, "Amplitude", d1.?.name);
 }
 
 test "channel with tags" {
@@ -215,9 +195,9 @@ test "channel with tags" {
     try channel.addTag(t1);
     try channel.addTag(t2);
 
-    try std.testing.expectEqual(@as(usize, 2), channel.getTags().len);
+    try std.testing.expectEqual(@as(usize, 2), channel.tags().len);
 
     const found = channel.findTag("units");
     try std.testing.expect(found != null);
-    try std.testing.expectEqualSlices(u8, "kPa", found.?.getString().?);
+    try std.testing.expectEqualSlices(u8, "kPa", found.?.string().?);
 }

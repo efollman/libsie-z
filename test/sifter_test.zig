@@ -6,8 +6,8 @@ const libsie = @import("libsie");
 const testing = std.testing;
 
 const SieFile = libsie.SieFile;
-const Writer = libsie.writer.Writer;
-const Sifter = libsie.sifter.Sifter;
+const Writer = libsie.advanced.writer.Writer;
+const Sifter = libsie.advanced.sifter.Sifter;
 
 /// Writer callback that accumulates total bytes written.
 fn accumulateFn(user: ?*anyopaque, data: []const u8) usize {

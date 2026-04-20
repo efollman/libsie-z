@@ -217,11 +217,11 @@ pub const Output = struct {
     pub fn setRaw(self: *Output, dim: usize, scan: usize, data: []const u8) !void {
         if (dim >= self.num_dims) return error.IndexOutOfBounds;
         const d = &self.dimensions[dim];
-        if (d.raw_data) |raw| {
-            if (scan < raw.len) {
+        if (d.raw_data) |raw_arr| {
+            if (scan < raw_arr.len) {
                 const owned_data = try self.allocator.dupe(u8, data);
-                if (raw[scan].owned) self.allocator.free(@constCast(raw[scan].ptr));
-                raw[scan] = .{
+                if (raw_arr[scan].owned) self.allocator.free(@constCast(raw_arr[scan].ptr));
+                raw_arr[scan] = .{
                     .ptr = owned_data,
                     .size = @intCast(data.len),
                     .owned = true,
@@ -231,7 +231,7 @@ pub const Output = struct {
     }
 
     /// Get float64 value at position
-    pub fn getFloat64(self: *const Output, dim: usize, row: usize) ?f64 {
+    pub fn float64(self: *const Output, dim: usize, row: usize) ?f64 {
         if (dim >= self.num_dims or row >= self.num_rows) return null;
         if (self.dimensions[dim].float64_data) |data| {
             if (row < data.len) return data[row];
@@ -240,7 +240,7 @@ pub const Output = struct {
     }
 
     /// Get raw data at position
-    pub fn getRaw(self: *const Output, dim: usize, row: usize) ?RawData {
+    pub fn raw(self: *const Output, dim: usize, row: usize) ?RawData {
         if (dim >= self.num_dims or row >= self.num_rows) return null;
         if (self.dimensions[dim].raw_data) |data| {
             if (row < data.len) return data[row];
@@ -249,7 +249,7 @@ pub const Output = struct {
     }
 
     /// Get dimension type
-    pub fn getDimensionType(self: *const Output, dim: usize) ?OutputType {
+    pub fn dimensionType(self: *const Output, dim: usize) ?OutputType {
         if (dim >= self.num_dims) return null;
         return self.dimensions[dim].dim_type;
     }
@@ -375,9 +375,9 @@ test "output float64 data" {
     output.num_rows = 3;
     try output.setFloat64Dimension(0, data);
 
-    try std.testing.expectEqual(OutputType.Float64, output.getDimensionType(0).?);
-    try std.testing.expectApproxEqAbs(@as(f64, 1.5), output.getFloat64(0, 0).?, 0.001);
-    try std.testing.expectApproxEqAbs(@as(f64, 2.5), output.getFloat64(0, 1).?, 0.001);
+    try std.testing.expectEqual(OutputType.Float64, output.dimensionType(0).?);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.5), output.float64(0, 0).?, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.5), output.float64(0, 1).?, 0.001);
 }
 
 test "output resize and grow" {
@@ -397,7 +397,7 @@ test "output resize and grow" {
     // Write and read
     output.dimensions[0].float64_data.?[0] = 42.0;
     output.num_rows = 1;
-    try std.testing.expectApproxEqAbs(@as(f64, 42.0), output.getFloat64(0, 0).?, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f64, 42.0), output.float64(0, 0).?, 0.001);
 
     // Grow
     try output.grow(0);

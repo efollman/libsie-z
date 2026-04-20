@@ -9,8 +9,8 @@ const libsie = @import("libsie");
 const testing = std.testing;
 
 const SieFile = libsie.SieFile;
-const File = libsie.file.File;
-const Block = libsie.block;
+const File = libsie.File;
+const Block = libsie.advanced.block;
 const GroupSpigot = libsie.GroupSpigot;
 
 const test_files = [_][]const u8{
@@ -100,31 +100,31 @@ test "functional: spigot XML - sie_float_conversions" {
 fn dumpChannel(
     allocator: std.mem.Allocator,
     sf: *SieFile,
-    ch: *const libsie.channel.Channel,
+    ch: *const libsie.Channel,
     full_name: []const u8,
 ) ![]u8 {
     var buf: std.ArrayList(u8) = .{};
     errdefer buf.deinit(allocator);
 
     // Channel header: Channel id N, "name":
-    try appendFmt(allocator, &buf, "Channel id {d}, \"{s}\":\n", .{ ch.getId(), full_name });
+    try appendFmt(allocator, &buf, "Channel id {d}, \"{s}\":\n", .{ ch.id, full_name });
 
     // Group
     try appendFmt(allocator, &buf, "  group {d}\n", .{ch.toplevel_group});
 
     // Tags
-    for (ch.getTags()) |t| {
+    for (ch.tags()) |t| {
         try dumpTag(allocator, &buf, t, "  ");
     }
 
     // Dimensions
-    const dims = ch.getDimensions();
+    const dims = ch.dimensions();
     for (dims) |dim| {
-        try appendFmt(allocator, &buf, "  Dimension index {d}:\n", .{dim.getIndex()});
+        try appendFmt(allocator, &buf, "  Dimension index {d}:\n", .{dim.index});
         try appendFmt(allocator, &buf, "    group {d}\n", .{dim.toplevel_group});
         try appendFmt(allocator, &buf, "    decoder_id {d}\n", .{dim.decoder_id});
         try appendFmt(allocator, &buf, "    decoder_v {d}\n", .{dim.decoder_version});
-        for (dim.tags.items) |t| {
+        for (dim.tags()) |t| {
             try dumpTag(allocator, &buf, t, "    ");
         }
     }
@@ -152,33 +152,33 @@ fn appendFmt(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), comptime fmt
     try buf.appendSlice(allocator, result);
 }
 
-fn dumpTag(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), t: libsie.tag.Tag, prefix: []const u8) !void {
-    const value = t.getString() orelse "";
+fn dumpTag(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), t: libsie.Tag, prefix: []const u8) !void {
+    const value = t.string() orelse "";
     if (value.len > 0) {
-        try appendFmt(allocator, buf, "{s}Tag \"{s}\": \"{s}\"\n", .{ prefix, t.getId(), value });
+        try appendFmt(allocator, buf, "{s}Tag \"{s}\": \"{s}\"\n", .{ prefix, t.key, value });
     } else if (t.group != 0) {
-        try appendFmt(allocator, buf, "{s}Tag \"{s}\": external in group {d}\n", .{ prefix, t.getId(), t.group });
+        try appendFmt(allocator, buf, "{s}Tag \"{s}\": external in group {d}\n", .{ prefix, t.key, t.group });
     } else {
-        try appendFmt(allocator, buf, "{s}Tag \"{s}\": \"\"\n", .{ prefix, t.getId() });
+        try appendFmt(allocator, buf, "{s}Tag \"{s}\": \"\"\n", .{ prefix, t.key });
     }
 }
 
-fn dumpOutput(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), out: *const libsie.output.Output) !void {
+fn dumpOutput(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), out: *const libsie.Output) !void {
     for (0..out.num_rows) |scan| {
         try appendFmt(allocator, buf, "scan[{d}]: ", .{scan});
         for (0..out.num_dims) |v| {
-            const dim_type = out.getDimensionType(v) orelse continue;
+            const dim_type = out.dimensionType(v) orelse continue;
             switch (dim_type) {
                 .Float64 => {
-                    if (out.getFloat64(v, scan)) |val| {
+                    if (out.float64(v, scan)) |val| {
                         try appendFmt(allocator, buf, "v[{d}] = {d}; ", .{ v, val });
                     }
                 },
                 .Raw => {
-                    if (out.getRaw(v, scan)) |raw| {
+                    if (out.raw(v, scan)) |raw_val| {
                         try appendFmt(allocator, buf, "v[{d}] =", .{v});
-                        for (0..raw.size) |bi| {
-                            try appendFmt(allocator, buf, " {x:0>2}", .{raw.ptr[bi]});
+                        for (0..raw_val.size) |bi| {
+                            try appendFmt(allocator, buf, " {x:0>2}", .{raw_val.ptr[bi]});
                         }
                         try buf.appendSlice(allocator, "; ");
                     }
@@ -196,14 +196,14 @@ fn testDumpFile(comptime file_base: []const u8) !void {
     var sf = try SieFile.open(testing.allocator, sie_path);
     defer sf.deinit();
 
-    const channels = sf.getAllChannels();
+    const channels = sf.channels();
     var safe_buf: [256]u8 = undefined;
 
     for (channels) |ch| {
-        const safe_name = safeFn(ch.getName(), &safe_buf);
+        const safe_name = safeFn(ch.name, &safe_buf);
 
         // Generate dump
-        const dump = try dumpChannel(testing.allocator, &sf, ch, ch.getName());
+        const dump = try dumpChannel(testing.allocator, &sf, ch, ch.name);
         defer testing.allocator.free(dump);
 
         // Build reference path
@@ -245,7 +245,7 @@ fn testDumpFile(comptime file_base: []const u8) !void {
                     "  expected: '{s}'\n" ++
                     "  dump_len={d} ref_len={d}\n",
                 .{
-                    ch.getName(),
+                    ch.name,
                     file_base,
                     diff_pos,
                     dump[line_start..line_end],

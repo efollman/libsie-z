@@ -74,7 +74,7 @@ pub const Block = struct {
     payload_size: u32,
     max_size: u32,
     checksum: u32,
-    payload: []u8,
+    payload_buf: []u8,
 
     /// Create a new empty block with given capacity
     pub fn init(allocator: std.mem.Allocator) Block {
@@ -84,7 +84,7 @@ pub const Block = struct {
             .payload_size = 0,
             .max_size = 0,
             .checksum = 0,
-            .payload = &.{},
+            .payload_buf = &.{},
         };
     }
 
@@ -94,10 +94,10 @@ pub const Block = struct {
             const new_buf = try self.allocator.alloc(u8, size);
             if (self.max_size > 0) {
                 const copy_len = @min(self.payload_size, size);
-                @memcpy(new_buf[0..copy_len], self.payload[0..copy_len]);
-                self.allocator.free(self.payload);
+                @memcpy(new_buf[0..copy_len], self.payload_buf[0..copy_len]);
+                self.allocator.free(self.payload_buf);
             }
-            self.payload = new_buf;
+            self.payload_buf = new_buf;
             self.max_size = size;
         }
     }
@@ -135,8 +135,8 @@ pub const Block = struct {
 
         // Copy payload
         const payload_data = data[SIE_HEADER_SIZE .. SIE_HEADER_SIZE + payload_size];
-        const payload = try allocator.alloc(u8, payload_size);
-        @memcpy(payload, payload_data);
+        const payload_mem = try allocator.alloc(u8, payload_size);
+        @memcpy(payload_mem, payload_data);
 
         return Block{
             .allocator = allocator,
@@ -144,7 +144,7 @@ pub const Block = struct {
             .payload_size = payload_size,
             .max_size = payload_size,
             .checksum = stored_checksum,
-            .payload = payload,
+            .payload_buf = payload_mem,
         };
     }
 
@@ -156,45 +156,40 @@ pub const Block = struct {
         try writer.writeInt(u32, SIE_MAGIC, .big);
 
         // Payload
-        try writer.writeAll(self.getPayload());
+        try writer.writeAll(self.payload());
 
         // Trailer
-        const checksum = crc32(self.getPayload());
+        const checksum = crc32(self.payload());
         try writer.writeInt(u32, checksum, .big);
         try writer.writeInt(u32, SIE_MAGIC, .big);
     }
 
-    /// Get the group ID
-    pub fn getGroup(self: *const Block) u32 {
-        return self.group;
-    }
-
     /// Get payload size
-    pub fn getPayloadSize(self: *const Block) u32 {
+    pub fn payloadSize(self: *const Block) u32 {
         return self.payload_size;
     }
 
     /// Get total on-disk size (header + payload + trailer)
-    pub fn getTotalSize(self: *const Block) u32 {
+    pub fn totalSize(self: *const Block) u32 {
         return @as(u32, @intCast(SIE_OVERHEAD_SIZE)) + self.payload_size;
     }
 
     /// Get payload data
-    pub fn getPayload(self: *const Block) []const u8 {
+    pub fn payload(self: *const Block) []const u8 {
         if (self.payload_size == 0) return &.{};
-        return self.payload[0..self.payload_size];
+        return self.payload_buf[0..self.payload_size];
     }
 
     /// Get mutable payload data
-    pub fn getPayloadMut(self: *Block) []u8 {
+    pub fn payloadMut(self: *Block) []u8 {
         if (self.payload_size == 0) return &.{};
-        return self.payload[0..self.payload_size];
+        return self.payload_buf[0..self.payload_size];
     }
 
     /// Validate block checksum
     pub fn validateChecksum(self: *const Block) bool {
         if (self.checksum == 0) return true; // no checksum stored
-        const computed = crc32(self.getPayload());
+        const computed = crc32(self.payload());
         return computed == self.checksum;
     }
 
@@ -211,8 +206,8 @@ pub const Block = struct {
     /// Free allocated payload
     pub fn deinit(self: *Block) void {
         if (self.max_size > 0) {
-            self.allocator.free(self.payload);
-            self.payload = &.{};
+            self.allocator.free(self.payload_buf);
+            self.payload_buf = &.{};
             self.max_size = 0;
             self.payload_size = 0;
         }
@@ -236,7 +231,7 @@ test "block create and serialize" {
 
     // Expand and fill payload
     try block.expand(10);
-    @memcpy(block.payload[0..5], "hello");
+    @memcpy(block.payload_buf[0..5], "hello");
     block.payload_size = 5;
     block.group = 2;
 
@@ -255,7 +250,7 @@ test "block create and serialize" {
 
     try std.testing.expectEqual(@as(u32, 2), parsed.group);
     try std.testing.expectEqual(@as(u32, 5), parsed.payload_size);
-    try std.testing.expectEqualSlices(u8, "hello", parsed.getPayload());
+    try std.testing.expectEqualSlices(u8, "hello", parsed.payload());
     try std.testing.expect(parsed.validateChecksum());
 }
 

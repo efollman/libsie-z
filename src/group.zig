@@ -36,11 +36,6 @@ pub const Group = struct {
         _ = self;
     }
 
-    /// Get group ID
-    pub fn getId(self: *const Group) u32 {
-        return self.id;
-    }
-
     /// Check if this is the XML group (group 0)
     pub fn isXmlGroup(self: *const Group) bool {
         return self.id == block_mod.SIE_XML_GROUP;
@@ -52,12 +47,12 @@ pub const Group = struct {
     }
 
     /// Get number of blocks
-    pub fn getNumBlocks(self: *const Group) usize {
+    pub fn numBlocks(self: *const Group) usize {
         return self.num_blocks;
     }
 
     /// Get total payload bytes across all blocks
-    pub fn getTotalPayloadBytes(self: *const Group) u64 {
+    pub fn totalPayloadBytes(self: *const Group) u64 {
         return self.total_payload_bytes;
     }
 
@@ -86,11 +81,11 @@ test "group creation" {
     var group = Group.init(allocator, 5);
     defer group.deinit();
 
-    try std.testing.expectEqual(@as(u32, 5), group.getId());
+    try std.testing.expectEqual(@as(u32, 5), group.id);
     try std.testing.expect(!group.isXmlGroup());
     try std.testing.expect(!group.isIndexGroup());
     try std.testing.expect(!group.isClosed());
-    try std.testing.expectEqual(@as(usize, 0), group.getNumBlocks());
+    try std.testing.expectEqual(@as(usize, 0), group.numBlocks());
 }
 
 test "group block tracking" {
@@ -104,8 +99,8 @@ test "group block tracking" {
     group.recordBlock(100);
     group.recordBlock(200);
 
-    try std.testing.expectEqual(@as(usize, 2), group.getNumBlocks());
-    try std.testing.expectEqual(@as(u64, 300), group.getTotalPayloadBytes());
+    try std.testing.expectEqual(@as(usize, 2), group.numBlocks());
+    try std.testing.expectEqual(@as(u64, 300), group.totalPayloadBytes());
 
     group.close();
     try std.testing.expect(group.isClosed());

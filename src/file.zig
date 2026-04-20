@@ -40,11 +40,11 @@ pub const FileGroupIndex = struct {
         self.payload_size += size;
     }
 
-    pub fn getNumBlocks(self: *const FileGroupIndex) usize {
+    pub fn numBlocks(self: *const FileGroupIndex) usize {
         return self.entries.items.len;
     }
 
-    pub fn getNumBytes(self: *const FileGroupIndex) u64 {
+    pub fn numBytes(self: *const FileGroupIndex) u64 {
         return self.payload_size;
     }
 };
@@ -233,7 +233,7 @@ pub const File = struct {
             .payload_size = payload_size,
             .max_size = payload_size,
             .checksum = checksum,
-            .payload = payload,
+            .payload_buf = payload,
         };
     }
 
@@ -320,10 +320,10 @@ pub const File = struct {
             // Parse index block payload: extract indexed block entries and jump
             // past the indexed range to avoid scanning those blocks individually
             if (blk.group == block_mod.SIE_INDEX_GROUP) {
-                const payload = blk.getPayload();
-                if (payload.len >= 12 and payload.len % 12 == 0) {
+                const pl = blk.payload();
+                if (pl.len >= 12 and pl.len % 12 == 0) {
                     const initial_offset = try self.expandIndexBlock(
-                        payload,
+                        pl,
                         block_offset,
                         &scan_entries,
                     );
@@ -371,7 +371,7 @@ pub const File = struct {
             i -= 1;
             const entry_base = i * 12;
             const offset = std.mem.readInt(u64, payload[entry_base..][0..8], .big);
-            const group = std.mem.readInt(u32, payload[entry_base + 8..][0..4], .big);
+            const group = std.mem.readInt(u32, payload[entry_base + 8 ..][0..4], .big);
 
             // Validate offset ordering (each entry must be before the previous)
             if (offset >= prev_offset) {
@@ -447,17 +447,17 @@ pub const File = struct {
     }
 
     /// Get a group index by ID
-    pub fn getGroupIndex(self: *File, group_id: u32) ?*FileGroupIndex {
+    pub fn groupIndex(self: *File, group_id: u32) ?*FileGroupIndex {
         return self.group_indexes.getPtr(group_id);
     }
 
     /// Get number of groups in the file
-    pub fn getNumGroups(self: *const File) u32 {
+    pub fn numGroups(self: *const File) u32 {
         return @as(u32, @intCast(self.group_indexes.count()));
     }
 
     /// Get the highest group ID seen
-    pub fn getHighestGroup(self: *const File) u32 {
+    pub fn highestGroup(self: *const File) u32 {
         return self.highest_group;
     }
 
@@ -489,7 +489,7 @@ pub const File = struct {
 
     fn vtableGetGroupHandle(ctx: *anyopaque, group: u32) ?intake_mod.GroupHandle {
         const self = ptrFromOpaque(ctx);
-        if (self.getGroupIndex(group)) |ptr| {
+        if (self.groupIndex(group)) |ptr| {
             return @ptrCast(ptr);
         }
         return null;
@@ -498,13 +498,13 @@ pub const File = struct {
     fn vtableGetGroupNumBlocks(ctx: *anyopaque, handle: intake_mod.GroupHandle) usize {
         const idx: *FileGroupIndex = @ptrCast(@alignCast(handle));
         _ = ctx;
-        return idx.getNumBlocks();
+        return idx.numBlocks();
     }
 
     fn vtableGetGroupNumBytes(ctx: *anyopaque, handle: intake_mod.GroupHandle) u64 {
         const idx: *FileGroupIndex = @ptrCast(@alignCast(handle));
         _ = ctx;
-        return idx.getNumBytes();
+        return idx.numBytes();
     }
 
     fn vtableGetGroupBlockSize(ctx: *anyopaque, handle: intake_mod.GroupHandle, entry: usize) u32 {
@@ -535,9 +535,9 @@ pub const File = struct {
 
         // Transfer payload ownership
         if (blk.max_size > 0) {
-            self.allocator.free(blk.payload);
+            self.allocator.free(blk.payload_buf);
         }
-        blk.payload = block_read.payload;
+        blk.payload_buf = block_read.payload_buf;
         blk.max_size = block_read.max_size;
     }
 
@@ -672,7 +672,7 @@ pub const File = struct {
 
     /// Get blocks that haven't been cataloged in the index yet.
     /// Returns a list of (offset, group) pairs for blocks after first_unindexed.
-    pub fn getUnindexedBlocks(self: *File) !std.ArrayList(UnindexedBlock) {
+    pub fn unindexedBlocks(self: *File) !std.ArrayList(UnindexedBlock) {
         var result = std.ArrayList(UnindexedBlock){};
         errdefer result.deinit(self.allocator);
 
@@ -724,7 +724,7 @@ test "file position tracking" {
 
     try std.testing.expectEqual(file.tell(), 0);
     try std.testing.expectEqual(file.size(), 0);
-    try std.testing.expectEqual(@as(u32, 0), file.getNumGroups());
+    try std.testing.expectEqual(@as(u32, 0), file.numGroups());
 }
 
 test "file group index structure" {
@@ -738,8 +738,8 @@ test "file group index structure" {
     try idx.addEntry(allocator, 0, 100);
     try idx.addEntry(allocator, 200, 50);
 
-    try std.testing.expectEqual(@as(usize, 2), idx.getNumBlocks());
-    try std.testing.expectEqual(@as(u64, 150), idx.getNumBytes());
+    try std.testing.expectEqual(@as(usize, 2), idx.numBlocks());
+    try std.testing.expectEqual(@as(u64, 150), idx.numBytes());
 }
 
 test "expandIndexBlock parses entries correctly" {

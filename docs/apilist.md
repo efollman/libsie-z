@@ -9,11 +9,11 @@
 | `Block.expand(size) !void` | Grow payload buffer |
 | `Block.parseFromData(allocator, data) !Block` | Parse block from bytes |
 | `Block.writeTo(writer) !void` | Serialize to writer |
-| `Block.getGroup() u32` | Get group ID |
-| `Block.getPayloadSize() u32` | Get payload size |
-| `Block.getTotalSize() u32` | Get total size (with overhead) |
-| `Block.getPayload() []const u8` | Get payload bytes |
-| `Block.getPayloadMut() []u8` | Get mutable payload |
+| `Block.group` (field) | Get group ID |
+| `Block.payloadSize() u32` | Get payload size |
+| `Block.totalSize() u32` | Get total size (with overhead) |
+| `Block.payload() []const u8` | Get payload bytes |
+| `Block.payloadMut() []u8` | Get mutable payload |
 | `Block.validateChecksum() bool` | Verify CRC-32 |
 | `Block.isXml() bool` | Check if XML block (group 0) |
 | `Block.isIndex() bool` | Check if index block (group 1) |
@@ -40,15 +40,15 @@
 |----------|-------------|
 | `Channel.init(allocator, id, name) Channel` | Create channel |
 | `Channel.deinit()` | Cleanup |
-| `Channel.getId() u32` | Get channel ID |
-| `Channel.getName() []const u8` | Get channel name |
-| `Channel.getTestId() u32` | Get parent test ID |
+| `Channel.id` (field) | Get channel ID |
+| `Channel.name` (field) | Get channel name |
+| `Channel.test_id` (field) | Get parent test ID |
 | `Channel.addDimension(dim) !void` | Add a dimension |
-| `Channel.getDimensions() []const Dimension` | Get all dimensions |
-| `Channel.getDimension(index) ?*const Dimension` | Get dimension by index |
-| `Channel.getNumDimensions() usize` | Count dimensions |
+| `Channel.dimensions() []const Dimension` | Get all dimensions |
+| `Channel.dimension(idx) ?*const Dimension` | Get dimension by index |
+| | (removed — use `ch.dimensions().len`) |
 | `Channel.addTag(tag) !void` | Add metadata tag |
-| `Channel.getTags() []const Tag` | Get all tags |
+| `Channel.tags() []const Tag` | Get all tags |
 | `Channel.findTag(key) ?*const Tag` | Find tag by key |
 | `Channel.setRawXml(xml, owned)` | Set raw XML definition |
 | `Channel.setExpandedXml(xml, owned)` | Set expanded XML |
@@ -140,13 +140,13 @@
 |----------|-------------|
 | `Dimension.init(allocator, ...) Dimension` | Create dimension |
 | `Dimension.deinit()` | Cleanup |
-| `Dimension.getIndex() u32` | Get dimension index |
-| `Dimension.getName() []const u8` | Get name |
-| `Dimension.getGroup() u32` | Get group |
-| `Dimension.getDecoderId() u32` | Get decoder ID |
+| `Dimension.index` (field) | Get dimension index |
+| `Dimension.name` (field) | Get name |
+| `Dimension.group` (field) | Get group |
+| `Dimension.decoder_id` (field) | Get decoder ID |
 | `Dimension.setDecoder(id, version)` | Set decoder info |
 | `Dimension.addTag(tag) !void` | Add metadata tag |
-| `Dimension.getTags() []const Tag` | Get all tags |
+| `Dimension.tags() []const Tag` | Get all tags |
 | `Dimension.findTag(key) ?*const Tag` | Find tag by key |
 | `Dimension.format(...)` | Debug formatter |
 
@@ -169,14 +169,14 @@
 | `File.readBlock() !Block` | Read next block |
 | `File.isSie() !bool` | Check SIE magic |
 | `File.buildIndex() !void` | Build group index |
-| `File.getGroupIndex(id) ?*FileGroupIndex` | Get group index |
-| `File.getNumGroups() u32` | Count groups |
-| `File.getHighestGroup() u32` | Highest group ID |
+| `File.groupIndex(id) ?*FileGroupIndex` | Get group index |
+| `File.numGroups() u32` | Count groups |
+| `File.highestGroup() u32` | Highest group ID |
 | `File.asIntake() Intake` | Create Intake interface |
 | `File.searchBackwardsForMagic(max) !?i64` | Search backward for magic |
 | `File.readBlockBackward() !Block` | Read block from end |
 | `File.findBlockBackward(max) !Block` | Find block searching backward |
-| `File.getUnindexedBlocks() !ArrayList(UnindexedBlock)` | Get uncatalogued blocks |
+| `File.unindexedBlocks() !ArrayList(UnindexedBlock)` | Get uncatalogued blocks |
 | `File.groupForEach(callback, extra)` | Iterate all groups with callback |
 
 ### `file_stream` — Incremental Stream-to-File Writer
@@ -189,9 +189,9 @@
 | `FileStream.deinit()` | Close and cleanup |
 | `FileStream.addStreamData(data) !usize` | Feed raw bytes, write complete blocks |
 | `FileStream.isGroupClosed(group) bool` | Check if group is closed |
-| `FileStream.getGroupIndex(id) ?*FileGroupIndex` | Get group index |
-| `FileStream.getNumGroups() u32` | Count groups |
-| `FileStream.getHighestGroup() u32` | Highest group ID |
+| `FileStream.groupIndex(id) ?*FileGroupIndex` | Get group index |
+| `FileStream.numGroups() u32` | Count groups |
+| `FileStream.highestGroup() u32` | Highest group ID |
 | `FileStream.groupForEach(callback, extra)` | Iterate all groups with callback |
 | `FileStream.readBlockAt(offset) !Block` | Read block at file offset |
 | `FileStream.asIntake() Intake` | Create Intake interface |
@@ -202,11 +202,11 @@
 |----------|-------------|
 | `Group.init(allocator, id) Group` | Create group |
 | `Group.deinit()` | Cleanup |
-| `Group.getId() u32` | Get group ID |
+| `Group.id` (field) | Get group ID |
 | `Group.isXmlGroup() bool` | Is XML group (0) |
 | `Group.isIndexGroup() bool` | Is index group (1) |
-| `Group.getNumBlocks() usize` | Block count |
-| `Group.getTotalPayloadBytes() u64` | Total payload size |
+| `Group.numBlocks() usize` | Block count |
+| `Group.totalPayloadBytes() u64` | Total payload size |
 | `Group.isClosed() bool` | Group complete |
 | `Group.close()` | Mark closed |
 | `Group.recordBlock(size)` | Record a block |
@@ -280,9 +280,9 @@
 | `Output.setFloat64Dimension(dim, data) !void` | Set float64 column |
 | `Output.setRawDimension(dim, data) !void` | Set raw column |
 | `Output.setRaw(dim, scan, data) !void` | Set single raw cell |
-| `Output.getFloat64(dim, row) ?f64` | Get float64 value |
-| `Output.getRaw(dim, row) ?RawData` | Get raw value |
-| `Output.getDimensionType(dim) ?OutputType` | Get dimension type |
+| `Output.float64(dim, row) ?f64` | Get float64 value |
+| `Output.raw(dim, row) ?RawData` | Get raw value |
+| `Output.dimensionType(dim) ?OutputType` | Get dimension type |
 | `Output.deepCopy(allocator) !Output` | Deep clone all data |
 | `Output.compare(other) bool` | Compare equality |
 | `Output.format(...)` | Debug formatter |
@@ -331,13 +331,17 @@
 |----------|-------------|
 | `SieFile.open(allocator, path) !SieFile` | Open and parse SIE file |
 | `SieFile.deinit()` | Cleanup |
-| `SieFile.getAllChannels() []*Channel` | Get all channels |
-| `SieFile.getFileTags() []const Tag` | Get file-level tags |
+| `SieFile.tests() []Test` | Get all tests |
+| `SieFile.channels() []*Channel` | Get all channels |
+| `SieFile.fileTags() []const Tag` | Get file-level tags |
+| `SieFile.findTest(id) ?*Test` | Find test by ID |
 | `SieFile.findChannel(id) ?*Channel` | Find channel by ID |
-| `SieFile.getFile() *File` | Get underlying file |
-| `SieFile.getXmlDef() *XmlDefinition` | Get XML definition |
+| `SieFile.containingTest(ch) ?*Test` | Get test containing channel |
+| `SieFile.file` (field) | Underlying file handle |
+| `SieFile.xml_def` (field) | XML definition |
 | `SieFile.attachSpigot(ch) !ChannelSpigot` | Create data spigot |
-| `SieFile.getDecoder(id) ?*const Decoder` | Get decoder by ID |
+| `SieFile.decoder(id) ?*const Decoder` | Get decoder by ID |
+| `SieFile.numDecoders() usize` | Count compiled decoders |
 
 ### `sifter` — Subset Extraction
 
@@ -381,7 +385,7 @@
 | `Stream.getGroupNumBytes(group_id) u64` | Byte count |
 | `Stream.isGroupClosed(group_id) bool` | Group complete |
 | `Stream.getData() []const u8` | Raw data buffer |
-| `Stream.getNumGroups() u32` | Group count |
+| `Stream.numGroups() u32` | Group count |
 | `Stream.getGroupBlockSize(group_id, entry) u32` | Block payload size |
 | `Stream.readGroupBlock(group_id, entry) !Block` | Read block by index |
 | `Stream.asIntake() Intake` | Create Intake interface |
@@ -407,11 +411,11 @@
 | `Tag.initWithGroup(allocator, key, value, group) !Tag` | Create grouped tag |
 | `Tag.isString() bool` | Is string value |
 | `Tag.isBinary() bool` | Is binary value |
-| `Tag.getId() []const u8` | Get key |
-| `Tag.getString() ?[]const u8` | Get string value |
-| `Tag.getBinary() ?[]const u8` | Get binary value |
-| `Tag.getValueSize() usize` | Value byte size |
-| `Tag.getGroup() u32` | Get group ID |
+| `Tag.key` (field) | Get key |
+| `Tag.string() ?[]const u8` | Get string value |
+| `Tag.binary() ?[]const u8` | Get binary value |
+| `Tag.valueSize() usize` | Value byte size |
+| `Tag.group` (field) | Get group ID |
 | `Tag.isFromGroup() bool` | Has group association |
 | `Tag.deinit()` | Cleanup |
 | `Tag.format(...)` | Debug formatter |

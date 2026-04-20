@@ -66,13 +66,8 @@ pub const Tag = struct {
         return self.value == .Binary;
     }
 
-    /// Get the tag key/ID
-    pub fn getId(self: *const Tag) []const u8 {
-        return self.key;
-    }
-
     /// Get string value (returns null if not a string)
-    pub fn getString(self: *const Tag) ?[]const u8 {
+    pub fn string(self: *const Tag) ?[]const u8 {
         if (self.value == .String) {
             return self.value.String;
         }
@@ -80,7 +75,7 @@ pub const Tag = struct {
     }
 
     /// Get binary value (returns null if not binary)
-    pub fn getBinary(self: *const Tag) ?[]const u8 {
+    pub fn binary(self: *const Tag) ?[]const u8 {
         if (self.value == .Binary) {
             return self.value.Binary;
         }
@@ -88,16 +83,11 @@ pub const Tag = struct {
     }
 
     /// Get value size in bytes regardless of type
-    pub fn getValueSize(self: *const Tag) usize {
+    pub fn valueSize(self: *const Tag) usize {
         return switch (self.value) {
             .String => |s| s.len,
             .Binary => |b| b.len,
         };
-    }
-
-    /// Get the group this tag belongs to (0 = top-level)
-    pub fn getGroup(self: *const Tag) u32 {
-        return self.group;
     }
 
     /// Check if this tag is associated with a specific group
@@ -127,11 +117,11 @@ test "string tag" {
     var tag = try Tag.initString(allocator, "author", "John Doe");
     defer tag.deinit();
 
-    try std.testing.expectEqualSlices(u8, "author", tag.getId());
+    try std.testing.expectEqualSlices(u8, "author", tag.key);
     try std.testing.expect(tag.isString());
     try std.testing.expect(!tag.isBinary());
-    try std.testing.expectEqualSlices(u8, "John Doe", tag.getString().?);
-    try std.testing.expectEqual(@as(usize, 8), tag.getValueSize());
+    try std.testing.expectEqualSlices(u8, "John Doe", tag.string().?);
+    try std.testing.expectEqual(@as(usize, 8), tag.valueSize());
     try std.testing.expect(!tag.isFromGroup());
 }
 
@@ -146,7 +136,7 @@ test "binary tag" {
 
     try std.testing.expect(!tag.isString());
     try std.testing.expect(tag.isBinary());
-    try std.testing.expectEqualSlices(u8, data, tag.getBinary().?);
+    try std.testing.expectEqualSlices(u8, data, tag.binary().?);
 }
 
 test "tag with group" {
@@ -157,7 +147,7 @@ test "tag with group" {
     var tag = try Tag.initWithGroup(allocator, "sensor", "TC-1", 5);
     defer tag.deinit();
 
-    try std.testing.expectEqual(@as(u32, 5), tag.getGroup());
+    try std.testing.expectEqual(@as(u32, 5), tag.group);
     try std.testing.expect(tag.isFromGroup());
-    try std.testing.expectEqualSlices(u8, "TC-1", tag.getString().?);
+    try std.testing.expectEqualSlices(u8, "TC-1", tag.string().?);
 }

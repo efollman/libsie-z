@@ -5,10 +5,10 @@ const std = @import("std");
 const libsie = @import("libsie");
 const testing = std.testing;
 
-const Node = libsie.xml.Node;
-const NodeType = libsie.xml.NodeType;
-const XmlParser = libsie.xml.XmlParser;
-const IncrementalParser = libsie.xml.IncrementalParser;
+const Node = libsie.advanced.xml.Node;
+const NodeType = libsie.advanced.xml.NodeType;
+const XmlParser = libsie.advanced.xml.XmlParser;
+const IncrementalParser = libsie.advanced.xml.IncrementalParser;
 
 test "xml: node attributes set get overwrite" {
     // Port of test_node_attrs — tests set, get, overwrite, and multiple attrs
@@ -461,7 +461,7 @@ test "xml: nameEqual" {
 test "xml: find with callback" {
     const data = "<root><a id='1'/><b id='2'><c id='3'/></b></root>";
 
-    var parser = libsie.xml.XmlParser.init(testing.allocator);
+    var parser = libsie.advanced.xml.XmlParser.init(testing.allocator);
     defer parser.deinit();
     try parser.parse(data);
 

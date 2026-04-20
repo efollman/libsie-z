@@ -3,9 +3,9 @@
 
 const std = @import("std");
 const libsie = @import("libsie");
-const File = libsie.file.File;
-const Block = libsie.block;
-const xml_mod = libsie.xml;
+const File = libsie.File;
+const Block = libsie.advanced.block;
+const xml_mod = libsie.advanced.xml;
 
 const testing = std.testing;
 
@@ -47,14 +47,14 @@ test "file: build index" {
     try file.buildIndex();
 
     // Should have at least group 0 (XML) and some data groups
-    const num_groups = file.getNumGroups();
+    const num_groups = file.numGroups();
     try testing.expect(num_groups > 0);
 
     // Group 0 (XML) should exist
-    const xml_idx = file.getGroupIndex(0);
+    const xml_idx = file.groupIndex(0);
     try testing.expect(xml_idx != null);
     if (xml_idx) |idx| {
-        try testing.expect(idx.getNumBlocks() > 0);
+        try testing.expect(idx.numBlocks() > 0);
     }
 }
 
@@ -69,8 +69,8 @@ test "file: read first block" {
     defer blk.deinit();
 
     // First block should be group 0 (XML)
-    try testing.expectEqual(@as(u32, Block.SIE_XML_GROUP), blk.getGroup());
-    try testing.expect(blk.getPayloadSize() > 0);
+    try testing.expectEqual(@as(u32, Block.SIE_XML_GROUP), blk.group);
+    try testing.expect(blk.payloadSize() > 0);
 }
 
 test "file: read block at offset" {
@@ -80,12 +80,12 @@ test "file: read block at offset" {
     try file.buildIndex();
 
     // Read the first XML block using the index
-    const xml_idx = file.getGroupIndex(0) orelse return error.TestUnexpectedResult;
+    const xml_idx = file.groupIndex(0) orelse return error.TestUnexpectedResult;
     if (xml_idx.entries.items.len > 0) {
         const entry = xml_idx.entries.items[0];
         var blk = try file.readBlockAt(@intCast(entry.offset));
         defer blk.deinit();
-        try testing.expectEqual(@as(u32, 0), blk.getGroup());
+        try testing.expectEqual(@as(u32, 0), blk.group);
     }
 }
 
@@ -96,12 +96,12 @@ test "file: comprehensive file groups" {
     try file.buildIndex();
 
     try testing.expect(try file.isSie());
-    const num_groups = file.getNumGroups();
+    const num_groups = file.numGroups();
     // Comprehensive file should have multiple groups
     try testing.expect(num_groups >= 2);
 
     // Get highest group
-    const highest = file.getHighestGroup();
+    const highest = file.highestGroup();
     try testing.expect(highest >= 2);
 }
 
@@ -131,15 +131,15 @@ test "file: XML block contains valid XML" {
     defer blk.deinit();
 
     // Should be XML group and start with <?xml
-    try testing.expectEqual(@as(u32, 0), blk.getGroup());
-    const payload = blk.getPayload();
+    try testing.expectEqual(@as(u32, 0), blk.group);
+    const payload = blk.payload();
     try testing.expect(payload.len > 5);
     try testing.expect(std.mem.startsWith(u8, payload, "<?xml"));
 }
 
 // --- Index block parsing integration tests ---
 
-const Writer = libsie.writer.Writer;
+const Writer = libsie.advanced.writer.Writer;
 
 fn testWriteFn(user: ?*anyopaque, data: []const u8) usize {
     const list: *std.ArrayList(u8) = @ptrCast(@alignCast(user.?));
@@ -179,40 +179,40 @@ test "file: backward index with writer-generated index blocks" {
     try file.buildIndex();
 
     // Verify groups exist
-    try testing.expect(file.getGroupIndex(0) != null); // XML
-    try testing.expect(file.getGroupIndex(1) != null); // index
-    try testing.expect(file.getGroupIndex(2) != null); // data
-    try testing.expect(file.getGroupIndex(3) != null); // data
+    try testing.expect(file.groupIndex(0) != null); // XML
+    try testing.expect(file.groupIndex(1) != null); // index
+    try testing.expect(file.groupIndex(2) != null); // data
+    try testing.expect(file.groupIndex(3) != null); // data
 
     // Verify block counts per group
-    if (file.getGroupIndex(0)) |idx| {
-        try testing.expectEqual(@as(usize, 1), idx.getNumBlocks());
+    if (file.groupIndex(0)) |idx| {
+        try testing.expectEqual(@as(usize, 1), idx.numBlocks());
     }
-    if (file.getGroupIndex(1)) |idx| {
-        try testing.expectEqual(@as(usize, 1), idx.getNumBlocks());
+    if (file.groupIndex(1)) |idx| {
+        try testing.expectEqual(@as(usize, 1), idx.numBlocks());
     }
-    if (file.getGroupIndex(2)) |idx| {
-        try testing.expectEqual(@as(usize, 2), idx.getNumBlocks()); // two group-2 blocks
+    if (file.groupIndex(2)) |idx| {
+        try testing.expectEqual(@as(usize, 2), idx.numBlocks()); // two group-2 blocks
     }
-    if (file.getGroupIndex(3)) |idx| {
-        try testing.expectEqual(@as(usize, 1), idx.getNumBlocks());
+    if (file.groupIndex(3)) |idx| {
+        try testing.expectEqual(@as(usize, 1), idx.numBlocks());
     }
 
     // Verify we can read back the actual data blocks via the index
-    if (file.getGroupIndex(2)) |idx| {
+    if (file.groupIndex(2)) |idx| {
         const entry0 = idx.entries.items[0];
         var blk0 = try file.readBlockAt(@intCast(entry0.offset));
         defer blk0.deinit();
         try testing.expectEqual(@as(u32, 2), blk0.group);
         try testing.expectEqual(@as(u32, 3), blk0.payload_size);
-        try testing.expectEqualSlices(u8, &[_]u8{ 1, 2, 3 }, blk0.getPayload());
+        try testing.expectEqualSlices(u8, &[_]u8{ 1, 2, 3 }, blk0.payload());
 
         const entry1 = idx.entries.items[1];
         var blk1 = try file.readBlockAt(@intCast(entry1.offset));
         defer blk1.deinit();
         try testing.expectEqual(@as(u32, 2), blk1.group);
         try testing.expectEqual(@as(u32, 2), blk1.payload_size);
-        try testing.expectEqualSlices(u8, &[_]u8{ 10, 20 }, blk1.getPayload());
+        try testing.expectEqualSlices(u8, &[_]u8{ 10, 20 }, blk1.payload());
     }
 }
 
@@ -232,23 +232,23 @@ test "file: backward index matches forward index" {
     // Instead, let's compare group counts and block counts
     // Since buildIndex already succeeded via backward path, we verify key properties
 
-    const num_groups = file_bwd.getNumGroups();
+    const num_groups = file_bwd.numGroups();
     try testing.expect(num_groups >= 2);
-    try testing.expect(file_bwd.getHighestGroup() >= 2);
+    try testing.expect(file_bwd.highestGroup() >= 2);
 
     // XML group should exist with blocks
-    const xml_idx = file_bwd.getGroupIndex(0);
+    const xml_idx = file_bwd.groupIndex(0);
     try testing.expect(xml_idx != null);
     if (xml_idx) |idx| {
-        try testing.expect(idx.getNumBlocks() > 0);
-        try testing.expect(idx.getNumBytes() > 0);
+        try testing.expect(idx.numBlocks() > 0);
+        try testing.expect(idx.numBytes() > 0);
     }
 
     // Data groups should have blocks
     var total_blocks: usize = 0;
     var group_iter = file_bwd.group_indexes.valueIterator();
     while (group_iter.next()) |idx| {
-        total_blocks += idx.getNumBlocks();
+        total_blocks += idx.numBlocks();
     }
     try testing.expect(total_blocks > 3); // at least XML + some data blocks
 }
@@ -288,13 +288,13 @@ test "file: unindexed blocks tracking" {
     try file.buildIndex();
 
     // All groups should be indexed
-    try testing.expect(file.getGroupIndex(0) != null);
-    try testing.expect(file.getGroupIndex(2) != null);
-    try testing.expect(file.getGroupIndex(3) != null);
+    try testing.expect(file.groupIndex(0) != null);
+    try testing.expect(file.groupIndex(2) != null);
+    try testing.expect(file.groupIndex(3) != null);
 
     // first_unindexed should point to the first block after the index block
     // The unindexed blocks should be accessible
-    var unindexed = try file.getUnindexedBlocks();
+    var unindexed = try file.unindexedBlocks();
     defer unindexed.deinit(testing.allocator);
     try testing.expectEqual(@as(usize, 2), unindexed.items.len);
     // Both unindexed blocks are group 3
@@ -312,17 +312,17 @@ test "file: groupForEach iterates all groups" {
         group_count: u32 = 0,
         total_blocks: usize = 0,
 
-        fn callback(group_id: u32, index: *libsie.file.FileGroupIndex, extra: ?*anyopaque) void {
+        fn callback(group_id: u32, index: *libsie.advanced.file.FileGroupIndex, extra: ?*anyopaque) void {
             _ = group_id;
             const self: *@This() = @ptrCast(@alignCast(extra.?));
             self.group_count += 1;
-            self.total_blocks += index.getNumBlocks();
+            self.total_blocks += index.numBlocks();
         }
     };
 
     var state = State{};
     file.groupForEach(State.callback, @ptrCast(&state));
 
-    try testing.expectEqual(file.getNumGroups(), state.group_count);
+    try testing.expectEqual(file.numGroups(), state.group_count);
     try testing.expect(state.total_blocks > 0);
 }

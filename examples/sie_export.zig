@@ -20,10 +20,10 @@ const Tag = libsie.Tag;
 // Helper: writeTag
 // ---------------------------------------------------------------
 fn writeTag(writer: anytype, tag: *const Tag, prefix: []const u8) !void {
-    const name = tag.getId();
+    const name = tag.key;
 
     if (tag.isString()) {
-        const value = tag.getString() orelse "";
+        const value = tag.string() orelse "";
 
         if (value.len > 50) {
             try writer.print("{s}'{s}': long tag of {d} bytes.\n", .{
@@ -34,7 +34,7 @@ fn writeTag(writer: anytype, tag: *const Tag, prefix: []const u8) !void {
         }
     } else {
         try writer.print("{s}'{s}': binary tag of {d} bytes.\n", .{
-            prefix, name, tag.getValueSize(),
+            prefix, name, tag.valueSize(),
         });
     }
 }
@@ -90,18 +90,18 @@ pub fn main() !void {
     // ---------------------------------------------------------------
     // Print file summary
     // ---------------------------------------------------------------
-    const file = sf.getFile();
+    const file = sf.file;
     try writer.print("LibSIE {s} - SIE file export\n\n", .{libsie.version});
     try writer.print("File '{s}':\n", .{filename});
     try writer.print("  Size: {d} bytes\n", .{@as(u64, @intCast(file.file_size))});
-    try writer.print("  Groups: {d}\n", .{file.getNumGroups()});
-    try writer.print("  Decoders compiled: {d}\n", .{sf.compiled_decoders.count()});
+    try writer.print("  Groups: {d}\n", .{file.numGroups()});
+    try writer.print("  Decoders compiled: {d}\n", .{sf.numDecoders()});
     try writer.print("\n", .{});
 
     // ---------------------------------------------------------------
     // Section 1: All metadata (file tags, test/channel/dimension tags)
     // ---------------------------------------------------------------
-    const file_tags = sf.getFileTags();
+    const file_tags = sf.fileTags();
     if (file_tags.len > 0) {
         try writer.print("File tags:\n", .{});
         for (file_tags) |*tag| {
@@ -110,35 +110,35 @@ pub fn main() !void {
         try writer.print("\n", .{});
     }
 
-    const tests = sf.getTests();
+    const tests = sf.tests();
     try writer.print("Tests: {d}\n", .{tests.len});
 
     for (tests) |*test_obj| {
         try writer.print("\n  Test id {d}:\n", .{test_obj.id});
 
-        const test_tags = test_obj.getTags();
+        const test_tags = test_obj.tags();
         for (test_tags) |*tag| {
             try writeTag(writer, tag, "    Test tag ");
         }
 
-        const channels = test_obj.getChannels();
+        const channels = test_obj.channels();
         try writer.print("    Channels: {d}\n", .{channels.len});
 
         for (channels) |*ch| {
             try writer.print("\n    Channel id {d}, '{s}':\n", .{
-                ch.getId(), ch.getName(),
+                ch.id, ch.name,
             });
 
-            const ch_tags = ch.getTags();
+            const ch_tags = ch.tags();
             for (ch_tags) |*tag| {
                 try writeTag(writer, tag, "      Channel tag ");
             }
 
-            const dims = ch.getDimensions();
+            const dims = ch.dimensions();
             for (dims) |*dim| {
-                try writer.print("      Dimension index {d}:\n", .{dim.getIndex()});
+                try writer.print("      Dimension index {d}:\n", .{dim.index});
 
-                const dim_tags = dim.getTags();
+                const dim_tags = dim.tags();
                 for (dim_tags) |*tag| {
                     try writeTag(writer, tag, "        Dimension tag ");
                 }
@@ -152,10 +152,10 @@ pub fn main() !void {
     try writer.print("\n", .{});
 
     for (tests) |*test_obj| {
-        const channels = test_obj.getChannels();
+        const channels = test_obj.channels();
 
         for (channels) |*ch| {
-            try writer.print("Channel {d}\n", .{ch.getId()});
+            try writer.print("Channel {d}\n", .{ch.id});
 
             var spig = sf.attachSpigot(ch) catch {
                 continue;
@@ -170,10 +170,10 @@ pub fn main() !void {
                     for (0..num_dims) |dim| {
                         if (dim != 0) try writer.print("\t", .{});
 
-                        if (out.getFloat64(dim, row)) |val| {
+                        if (out.float64(dim, row)) |val| {
                             try writer.print("{d:.15}", .{val});
-                        } else if (out.getRaw(dim, row)) |raw| {
-                            for (raw.ptr) |byte| {
+                        } else if (out.raw(dim, row)) |raw_val| {
+                            for (raw_val.ptr) |byte| {
                                 try writer.print("{x:0>2}", .{byte});
                             }
                         }

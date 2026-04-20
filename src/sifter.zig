@@ -278,21 +278,21 @@ pub const Sifter = struct {
         }
 
         // Map channel tag groups
-        for (channel.getTags()) |t| {
+        for (channel.tags()) |t| {
             if (t.group != 0) {
                 _ = try self.mapId(.Group, intake_id, t.group);
             }
         }
 
         // Map dimension groups, decoders, and tag groups
-        for (channel.getDimensions()) |dim| {
+        for (channel.dimensions()) |dim| {
             if (dim.group != 0) {
                 _ = try self.mapIdGroup(intake_id, dim.group, start_block, end_block);
             }
             if (dim.decoder_id != 0) {
                 try self.mapDecoderId(sie_file, intake_id, dim.decoder_id);
             }
-            for (dim.getTags()) |t| {
+            for (dim.tags()) |t| {
                 if (t.group != 0) {
                     _ = try self.mapId(.Group, intake_id, t.group);
                 }
@@ -331,7 +331,7 @@ pub const Sifter = struct {
         while (iter.next()) |entry| {
             const from_group = entry.value_ptr.key.from_id;
             const new_group = entry.value_ptr.id;
-            const group_idx = file.getGroupIndex(from_group) orelse continue;
+            const group_idx = file.groupIndex(from_group) orelse continue;
             const num_blocks = group_idx.entries.items.len;
             const end = if (entry.value_ptr.end_block < num_blocks)
                 entry.value_ptr.end_block
@@ -343,7 +343,7 @@ pub const Sifter = struct {
                 const file_entry = group_idx.entries.items[block_idx];
                 var blk = try file.readBlockAt(@intCast(file_entry.offset));
                 defer blk.deinit();
-                try self.writer.writeBlock(new_group, blk.getPayload());
+                try self.writer.writeBlock(new_group, blk.payload());
             }
         }
     }
@@ -358,7 +358,7 @@ pub const Sifter = struct {
         var iter = self.maps[gi].iterator();
         while (iter.next()) |entry| {
             const from_group = entry.value_ptr.key.from_id;
-            const group_idx = file.getGroupIndex(from_group) orelse continue;
+            const group_idx = file.groupIndex(from_group) orelse continue;
             const nb = group_idx.entries.items.len;
             const start = entry.value_ptr.start_block;
             const end = if (entry.value_ptr.end_block < nb)
@@ -374,7 +374,7 @@ pub const Sifter = struct {
                 }
             } else {
                 num_blocks += nb;
-                num_bytes += group_idx.getNumBytes();
+                num_bytes += group_idx.numBytes();
             }
         }
 

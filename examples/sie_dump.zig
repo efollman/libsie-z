@@ -33,7 +33,7 @@ const Tag = libsie.Tag;
 // human-readable string or arbitrary-length binary data.
 fn printTag(writer: anytype, tag: *const Tag, prefix: []const u8) !void {
     // Getting the key is straightforward — it is always a string.
-    const name = tag.getId();
+    const name = tag.key;
 
     // Tags can contain arbitrary-length binary data in the value.
     // To check whether the value is a string or binary, we use
@@ -41,7 +41,7 @@ fn printTag(writer: anytype, tag: *const Tag, prefix: []const u8) !void {
     // tags, so we can also just try getString() and handle the
     // null case.
     if (tag.isString()) {
-        const value = tag.getString() orelse "";
+        const value = tag.string() orelse "";
 
         // As tags are occasionally long, let's only print the
         // length here if the value is over 50 bytes.
@@ -57,7 +57,7 @@ fn printTag(writer: anytype, tag: *const Tag, prefix: []const u8) !void {
         // you might hex-dump the contents or attach a spigot to
         // read the value piecewise (as with channel data).
         try writer.print("{s}'{s}': binary tag of {d} bytes.\n", .{
-            prefix, name, tag.getValueSize(),
+            prefix, name, tag.valueSize(),
         });
     }
 
@@ -138,11 +138,11 @@ pub fn main() !void {
     // ---------------------------------------------------------------
     // Now we have successfully opened our file.  Let's print some
     // basic information about it.
-    const file = sf.getFile();
+    const file = sf.file;
     try stdout.print("File '{s}':\n", .{filename});
     try stdout.print("  Size: {d} bytes\n", .{@as(u64, @intCast(file.file_size))});
-    try stdout.print("  Groups: {d}\n", .{file.getNumGroups()});
-    try stdout.print("  Decoders compiled: {d}\n", .{sf.compiled_decoders.count()});
+    try stdout.print("  Groups: {d}\n", .{file.numGroups()});
+    try stdout.print("  Decoders compiled: {d}\n", .{sf.numDecoders()});
     try stdout.print("\n", .{});
 
     // ---------------------------------------------------------------
@@ -157,7 +157,7 @@ pub fn main() !void {
     // In the C API, you would get an iterator via sie_get_tags(file)
     // and call sie_iterator_next() in a loop.  In Zig, tags are
     // returned as a slice — no iterator allocation or cleanup needed.
-    const file_tags = sf.getFileTags();
+    const file_tags = sf.fileTags();
     if (file_tags.len > 0) {
         try stdout.print("File tags:\n", .{});
         for (file_tags) |*tag| {
@@ -180,7 +180,7 @@ pub fn main() !void {
     // iterator of tests, then sie_get_channels(test) for channels,
     // and sie_get_dimensions(channel) for dimensions.  In Zig, all
     // of these return slices directly.
-    const tests = sf.getTests();
+    const tests = sf.tests();
     try stdout.print("Tests: {d}\n", .{tests.len});
 
     for (tests) |*test_obj| {
@@ -189,42 +189,42 @@ pub fn main() !void {
         try stdout.print("\n  Test id {d}:\n", .{test_obj.id});
 
         // Tests also have tags.  Print them just like file tags.
-        const test_tags = test_obj.getTags();
+        const test_tags = test_obj.tags();
         for (test_tags) |*tag| {
             try printTag(stdout, tag, "    Test tag ");
         }
 
         // Now iterate over the channels contained in this test.
         // In the C API: sie_get_channels(test) → iterator.
-        // In Zig: test_obj.getChannels() → slice.
-        const channels = test_obj.getChannels();
+        // In Zig: test_obj.channels() → slice.
+        const channels = test_obj.channels();
         try stdout.print("    Channels: {d}\n", .{channels.len});
 
         for (channels) |*ch| {
             // Channels have an SIE-internal ID and may have a name,
             // accessible with getId() and getName().
             try stdout.print("\n    Channel id {d}, '{s}':\n", .{
-                ch.getId(), ch.getName(),
+                ch.id, ch.name,
             });
 
             // Channel tags — in real code you'd probably factor this
             // into a helper, but it's inline here for the narrative.
-            const ch_tags = ch.getTags();
+            const ch_tags = ch.tags();
             for (ch_tags) |*tag| {
                 try printTag(stdout, tag, "      Channel tag ");
             }
 
             // Channels contain dimensions, which define an "axis"
             // or "column" of data.
-            const dims = ch.getDimensions();
+            const dims = ch.dimensions();
             for (dims) |*dim| {
                 // Dimensions have an "index" — for a typical time
                 // series, dimension index 0 is time and index 1 is
                 // the engineering value.
-                try stdout.print("      Dimension index {d}:\n", .{dim.getIndex()});
+                try stdout.print("      Dimension index {d}:\n", .{dim.index});
 
                 // Dimension tags...
-                const dim_tags = dim.getTags();
+                const dim_tags = dim.tags();
                 for (dim_tags) |*tag| {
                     try printTag(stdout, tag, "        Dimension tag ");
                 }
@@ -296,8 +296,8 @@ pub fn main() !void {
                 // data.  In the C API you could either use
                 // sie_output_get_struct() to get a raw C struct, or
                 // use sie_output_get_float64() / sie_output_get_raw()
-                // per-dimension.  In Zig, we use getFloat64() and
-                // getRaw() which return optionals — no struct casting
+                // per-dimension.  In Zig, we use float64() and
+                // raw() which return optionals — no struct casting
                 // or null checking needed.
                 for (0..num_rows) |row| {
                     try stdout.print("        Row {d}: ", .{row});
@@ -305,21 +305,21 @@ pub fn main() !void {
                         if (dim != 0) try stdout.print(", ", .{});
 
                         // The type can be Float64 or Raw.  We try
-                        // getFloat64 first; if it returns null then
+                        // float64 first; if it returns null then
                         // the column is raw data.
-                        if (out.getFloat64(dim, row)) |val| {
+                        if (out.float64(dim, row)) |val| {
                             try stdout.print("{d:.15}", .{val});
-                        } else if (out.getRaw(dim, row)) |raw| {
+                        } else if (out.raw(dim, row)) |raw_val| {
                             // Raw data has a pointer (ptr) and size.
                             // Unlike the C API where you could set a
                             // "claimed" flag to take ownership, in
                             // Zig the Output owns the data and it is
                             // cleaned up automatically when the
                             // spigot advances or is deinitialized.
-                            if (raw.size > 16) {
-                                try stdout.print("(raw data of size {d})", .{raw.size});
+                            if (raw_val.size > 16) {
+                                try stdout.print("(raw data of size {d})", .{raw_val.size});
                             } else {
-                                for (raw.ptr) |byte| {
+                                for (raw_val.ptr) |byte| {
                                     try stdout.print("{x:0>2}", .{byte});
                                 }
                             }
@@ -350,19 +350,19 @@ pub fn main() !void {
     // get all channels in the file.  In the C API this was:
     //   channel_iterator = sie_get_channels(file);
     // In Zig:
-    const all_channels = sf.getAllChannels();
+    const all_channels = sf.channels();
     try stdout.print("\nAll channels ({d}):\n", .{all_channels.len});
 
     for (all_channels) |ch| {
-        try stdout.print("  Channel id {d}, '{s}' ", .{ ch.getId(), ch.getName() });
+        try stdout.print("  Channel id {d}, '{s}' ", .{ ch.id, ch.name });
 
         // We can also go "backwards" and find which test contains a
         // channel.  Not all channels must be in a test, though most
         // containing actual user data will be.
         //
         // In the C API: sie_get_containing_test(channel).
-        // In Zig: sf.getContainingTest(ch).
-        if (sf.getContainingTest(ch)) |test_obj| {
+        // In Zig: sf.containingTest(ch).
+        if (sf.containingTest(ch)) |test_obj| {
             try stdout.print("is contained in test id {d}.\n", .{test_obj.id});
         } else {
             try stdout.print("is not in a test.\n", .{});

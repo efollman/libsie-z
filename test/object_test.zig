@@ -5,9 +5,9 @@ const std = @import("std");
 const libsie = @import("libsie");
 const testing = std.testing;
 
-const Ref = libsie.ref.Ref;
-const Object = libsie.object.Object;
-const ObjectType = libsie.object.ObjectType;
+const Ref = libsie.advanced.ref.Ref;
+const Object = libsie.advanced.object.Object;
+const ObjectType = libsie.advanced.object.ObjectType;
 
 test "object: reference counting retain release" {
     // Port of test_destroy — retain increments, release decrements,
@@ -70,7 +70,7 @@ test "object: multiple retains and releases" {
 
 test "object: typed object names" {
     // Port of test_null_args — verify type names are accessible
-    const libobject = libsie.object;
+    const libobject = libsie.advanced.object;
     const typed = libobject.TypedObject{ .Channel = undefined };
     try testing.expectEqualStrings("Channel", typed.typeName());
 
