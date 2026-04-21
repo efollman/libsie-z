@@ -5,8 +5,8 @@ const std = @import("std");
 const libsie = @import("libsie");
 const testing = std.testing;
 
-const Spigot = libsie.spigot.Spigot;
-const Output = libsie.output.Output;
+const Spigot = libsie.Spigot;
+const Output = libsie.Output;
 
 test "spigot: init and basic state" {
     var spigot = Spigot.init(testing.allocator, 100);
@@ -30,7 +30,7 @@ test "spigot: seek to end" {
     var spigot = Spigot.init(testing.allocator, 100);
     defer spigot.deinit();
 
-    try spigot.seekTo(libsie.spigot.SEEK_END);
+    try spigot.seekTo(libsie.advanced.spigot.SEEK_END);
     try testing.expect(spigot.isDone());
 }
 
@@ -55,6 +55,6 @@ test "spigot: output create trim" {
     // Trim to rows 10-20
     out.trim(10, 20);
     // After trim, first row should be what was at index 10
-    const first_val = out.getFloat64(0, 0);
+    const first_val = out.float64(0, 0);
     try testing.expect(first_val != null);
 }

@@ -5,9 +5,9 @@ const std = @import("std");
 const libsie = @import("libsie");
 const testing = std.testing;
 
-const Context = libsie.context.Context;
-const ContextConfig = libsie.context.ContextConfig;
-const ProgressCallbacks = libsie.context.ProgressCallbacks;
+const Context = libsie.Context;
+const ContextConfig = libsie.advanced.context.ContextConfig;
+const ProgressCallbacks = libsie.advanced.context.ProgressCallbacks;
 
 test "context: exception set and clear" {
     // Port of test_exception — basic exception lifecycle

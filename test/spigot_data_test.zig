@@ -6,8 +6,8 @@ const libsie = @import("libsie");
 const testing = std.testing;
 
 const SieFile = libsie.SieFile;
-const File = libsie.file.File;
-const Block = libsie.block;
+const File = libsie.File;
+const Block = libsie.advanced.block;
 const GroupSpigot = libsie.GroupSpigot;
 
 const min_sie = "test/data/sie_min_timhis_a_19EFAA61.sie";
@@ -89,7 +89,7 @@ test "spigot: channel spigot seek and tell" {
     const out10 = try spigot.get() orelse return error.TestUnexpectedResult;
     try testing.expectEqual(@as(usize, 10), out10.block);
     // v[0] first row should be 32 (= 10 * 3.2 scaled by transform)
-    const val10 = out10.getFloat64(0, 0) orelse return error.TestUnexpectedResult;
+    const val10 = out10.float64(0, 0) orelse return error.TestUnexpectedResult;
     try testing.expectApproxEqAbs(@as(f64, 32), val10, 0.01);
 
     // Seek to last block
@@ -97,7 +97,7 @@ test "spigot: channel spigot seek and tell" {
     try testing.expectEqual(@as(u64, n - 1), spigot.tell());
     const out_last = try spigot.get() orelse return error.TestUnexpectedResult;
     try testing.expectEqual(n - 1, out_last.block);
-    const val_last = out_last.getFloat64(0, 0) orelse return error.TestUnexpectedResult;
+    const val_last = out_last.float64(0, 0) orelse return error.TestUnexpectedResult;
     try testing.expectApproxEqAbs(@as(f64, 259.2), val_last, 0.01);
 }
 
@@ -118,7 +118,7 @@ test "spigot: channel spigot disable transforms" {
     const raw_out = try spigot.get() orelse return error.TestUnexpectedResult;
     // With transforms disabled, v[0] should be raw integer counters: 0, 1, 2, ...
     for (0..@min(raw_out.num_rows, 20)) |i| {
-        const val = raw_out.getFloat64(0, i) orelse continue;
+        const val = raw_out.float64(0, i) orelse continue;
         try testing.expectEqual(@as(f64, @floatFromInt(i)), val);
     }
 
@@ -131,7 +131,7 @@ test "spigot: channel spigot disable transforms" {
     // The scale from the seek test file — each integer step * 0.001 (or whatever the transform is)
     // Verify values are NOT raw integers (they should be scaled)
     for (0..@min(xform_out.num_rows, 20)) |i| {
-        const val = xform_out.getFloat64(0, i) orelse continue;
+        const val = xform_out.float64(0, i) orelse continue;
         // floor(val * 1000 + 0.5) should equal i (C test checks this)
         const rounded: i64 = @intFromFloat(@floor(val * 1000 + 0.5));
         try testing.expectEqual(@as(i64, @intCast(i)), rounded);
@@ -174,18 +174,18 @@ test "spigot: channel spigot data values match expected" {
     try testing.expectEqual(@as(usize, 520), out.num_rows);
 
     // v[0] = time: 0, 0.02, 0.04, ...
-    try testing.expectApproxEqAbs(@as(f64, 0.0), out.getFloat64(0, 0).?, 1e-10);
-    try testing.expectApproxEqAbs(@as(f64, 0.02), out.getFloat64(0, 1).?, 1e-10);
-    try testing.expectApproxEqAbs(@as(f64, 0.04), out.getFloat64(0, 2).?, 1e-10);
+    try testing.expectApproxEqAbs(@as(f64, 0.0), out.float64(0, 0).?, 1e-10);
+    try testing.expectApproxEqAbs(@as(f64, 0.02), out.float64(0, 1).?, 1e-10);
+    try testing.expectApproxEqAbs(@as(f64, 0.04), out.float64(0, 2).?, 1e-10);
 
     // v[1] = amplitude: -1000, -920, -840, ...
-    try testing.expectApproxEqAbs(@as(f64, -1000.0), out.getFloat64(1, 0).?, 0.01);
-    try testing.expectApproxEqAbs(@as(f64, -920.0), out.getFloat64(1, 1).?, 0.01);
-    try testing.expectApproxEqAbs(@as(f64, -840.0), out.getFloat64(1, 2).?, 0.01);
+    try testing.expectApproxEqAbs(@as(f64, -1000.0), out.float64(1, 0).?, 0.01);
+    try testing.expectApproxEqAbs(@as(f64, -920.0), out.float64(1, 1).?, 0.01);
+    try testing.expectApproxEqAbs(@as(f64, -840.0), out.float64(1, 2).?, 0.01);
 
     // Last row: v[0] = 10.38, v[1] = 519.986
-    try testing.expectApproxEqAbs(@as(f64, 10.38), out.getFloat64(0, 519).?, 0.01);
-    try testing.expectApproxEqAbs(@as(f64, 519.986), out.getFloat64(1, 519).?, 0.01);
+    try testing.expectApproxEqAbs(@as(f64, 10.38), out.float64(0, 519).?, 0.01);
+    try testing.expectApproxEqAbs(@as(f64, 519.986), out.float64(1, 519).?, 0.01);
 }
 
 test "spigot: both test channels produce identical structure" {
@@ -247,7 +247,7 @@ test "spigot: lower bound exact values" {
             };
             _ = spigot.seek(r.block);
             const output = try spigot.get() orelse return error.TestUnexpectedResult;
-            const val = output.getFloat64(0, r.scan) orelse return error.TestUnexpectedResult;
+            const val = output.float64(0, r.scan) orelse return error.TestUnexpectedResult;
             try testing.expectEqual(d, val);
         }
     }
@@ -273,7 +273,7 @@ test "spigot: lower bound fine-grained" {
             if (d >= 0) {
                 _ = spigot.seek(r.block);
                 const output = try spigot.get() orelse return error.TestUnexpectedResult;
-                const val = output.getFloat64(0, r.scan) orelse return error.TestUnexpectedResult;
+                const val = output.float64(0, r.scan) orelse return error.TestUnexpectedResult;
                 try testing.expectEqual(d, val);
             }
         }
@@ -304,7 +304,7 @@ test "spigot: lower bound just-below values" {
             };
             _ = spigot.seek(r.block);
             const output = try spigot.get() orelse return error.TestUnexpectedResult;
-            const val = output.getFloat64(0, r.scan) orelse return error.TestUnexpectedResult;
+            const val = output.float64(0, r.scan) orelse return error.TestUnexpectedResult;
             try testing.expectApproxEqAbs(d, val, 0.00001);
         }
     }
@@ -324,7 +324,7 @@ test "spigot: lower bound edge cases" {
         const r = try spigot.lowerBound(0, 1.9989) orelse return error.TestUnexpectedResult;
         _ = spigot.seek(r.block);
         const output = try spigot.get() orelse return error.TestUnexpectedResult;
-        const val = output.getFloat64(0, r.scan) orelse return error.TestUnexpectedResult;
+        const val = output.float64(0, r.scan) orelse return error.TestUnexpectedResult;
         try testing.expectEqual(@as(f64, 1.999), val);
     }
 
@@ -333,7 +333,7 @@ test "spigot: lower bound edge cases" {
         const r = try spigot.lowerBound(0, 1.999) orelse return error.TestUnexpectedResult;
         _ = spigot.seek(r.block);
         const output = try spigot.get() orelse return error.TestUnexpectedResult;
-        const val = output.getFloat64(0, r.scan) orelse return error.TestUnexpectedResult;
+        const val = output.float64(0, r.scan) orelse return error.TestUnexpectedResult;
         try testing.expectEqual(@as(f64, 1.999), val);
     }
 
@@ -342,7 +342,7 @@ test "spigot: lower bound edge cases" {
         const r = try spigot.lowerBound(0, 1.9991) orelse return error.TestUnexpectedResult;
         _ = spigot.seek(r.block);
         const output = try spigot.get() orelse return error.TestUnexpectedResult;
-        const val = output.getFloat64(0, r.scan) orelse return error.TestUnexpectedResult;
+        const val = output.float64(0, r.scan) orelse return error.TestUnexpectedResult;
         try testing.expectEqual(@as(f64, 2.0), val);
     }
 }
@@ -389,7 +389,7 @@ test "spigot: upper bound exact values" {
         if (d < 263) {
             _ = spigot.seek(r.block);
             const output = try spigot.get() orelse return error.TestUnexpectedResult;
-            const val = output.getFloat64(0, r.scan) orelse return error.TestUnexpectedResult;
+            const val = output.float64(0, r.scan) orelse return error.TestUnexpectedResult;
             try testing.expectEqual(d, val);
         }
     }
@@ -414,7 +414,7 @@ test "spigot: upper bound fine-grained" {
             if (d < 262.4) {
                 _ = spigot.seek(r.block);
                 const output = try spigot.get() orelse return error.TestUnexpectedResult;
-                const val = output.getFloat64(0, r.scan) orelse return error.TestUnexpectedResult;
+                const val = output.float64(0, r.scan) orelse return error.TestUnexpectedResult;
                 try testing.expectEqual(d, val);
             }
         }
@@ -445,7 +445,7 @@ test "spigot: upper bound just-above values" {
         if (d < 262.4) {
             _ = spigot.seek(r.block);
             const output = try spigot.get() orelse return error.TestUnexpectedResult;
-            const val = output.getFloat64(0, r.scan) orelse return error.TestUnexpectedResult;
+            const val = output.float64(0, r.scan) orelse return error.TestUnexpectedResult;
             try testing.expectApproxEqAbs(d, val, 0.00001);
         }
     }
@@ -465,7 +465,7 @@ test "spigot: upper bound edge cases" {
         const r = try spigot.upperBound(0, 1.9989) orelse return error.TestUnexpectedResult;
         _ = spigot.seek(r.block);
         const output = try spigot.get() orelse return error.TestUnexpectedResult;
-        const val = output.getFloat64(0, r.scan) orelse return error.TestUnexpectedResult;
+        const val = output.float64(0, r.scan) orelse return error.TestUnexpectedResult;
         try testing.expectEqual(@as(f64, 1.998), val);
     }
 
@@ -474,7 +474,7 @@ test "spigot: upper bound edge cases" {
         const r = try spigot.upperBound(0, 1.999) orelse return error.TestUnexpectedResult;
         _ = spigot.seek(r.block);
         const output = try spigot.get() orelse return error.TestUnexpectedResult;
-        const val = output.getFloat64(0, r.scan) orelse return error.TestUnexpectedResult;
+        const val = output.float64(0, r.scan) orelse return error.TestUnexpectedResult;
         try testing.expectEqual(@as(f64, 1.999), val);
     }
 
@@ -483,7 +483,7 @@ test "spigot: upper bound edge cases" {
         const r = try spigot.upperBound(0, 1.9991) orelse return error.TestUnexpectedResult;
         _ = spigot.seek(r.block);
         const output = try spigot.get() orelse return error.TestUnexpectedResult;
-        const val = output.getFloat64(0, r.scan) orelse return error.TestUnexpectedResult;
+        const val = output.float64(0, r.scan) orelse return error.TestUnexpectedResult;
         try testing.expectEqual(@as(f64, 1.999), val);
     }
 }
@@ -503,7 +503,7 @@ test "spigot: transform output manually" {
 
     // Raw values should be integers: 0, 1, 2, ...
     for (0..@min(output.num_rows, 20)) |i| {
-        const val = output.getFloat64(0, i) orelse continue;
+        const val = output.float64(0, i) orelse continue;
         try testing.expectEqual(@as(f64, @floatFromInt(i)), val);
     }
 
@@ -512,7 +512,7 @@ test "spigot: transform output manually" {
 
     // Now values should be scaled: floor(val * 1000 + 0.5) == i
     for (0..@min(output.num_rows, 20)) |i| {
-        const val = output.getFloat64(0, i) orelse continue;
+        const val = output.float64(0, i) orelse continue;
         const rounded: i64 = @intFromFloat(@floor(val * 1000 + 0.5));
         try testing.expectEqual(@as(i64, @intCast(i)), rounded);
     }

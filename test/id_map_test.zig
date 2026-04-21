@@ -5,7 +5,7 @@ const std = @import("std");
 const libsie = @import("libsie");
 const testing = std.testing;
 
-const HashMap = libsie.uthash.HashMap;
+const HashMap = libsie.advanced.uthash.HashMap;
 
 test "id_map: creation set get" {
     // Port of test_creation_set_get

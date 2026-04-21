@@ -3,10 +3,10 @@
 
 const std = @import("std");
 const libsie = @import("libsie");
-const FileStream = libsie.file_stream.FileStream;
-const FileGroupIndex = libsie.file.FileGroupIndex;
-const Block = libsie.block;
-const Writer = libsie.writer.Writer;
+const FileStream = libsie.FileStream;
+const FileGroupIndex = libsie.advanced.file.FileGroupIndex;
+const Block = libsie.advanced.block;
+const Writer = libsie.advanced.writer.Writer;
 
 const testing = std.testing;
 
@@ -33,8 +33,8 @@ test "file_stream: init and deinit" {
     var fs = FileStream.init(testing.allocator, tmp_path);
     defer fs.deinit();
 
-    try testing.expectEqual(@as(u32, 0), fs.getNumGroups());
-    try testing.expectEqual(@as(u32, 0), fs.getHighestGroup());
+    try testing.expectEqual(@as(u32, 0), fs.numGroups());
+    try testing.expectEqual(@as(u32, 0), fs.highestGroup());
 }
 
 test "file_stream: open creates file" {
@@ -60,12 +60,12 @@ test "file_stream: write single block" {
     try testing.expectEqual(raw.len, consumed);
 
     // Should have one group with one block
-    try testing.expectEqual(@as(u32, 1), fs.getNumGroups());
-    try testing.expectEqual(@as(u32, 5), fs.getHighestGroup());
+    try testing.expectEqual(@as(u32, 1), fs.numGroups());
+    try testing.expectEqual(@as(u32, 5), fs.highestGroup());
 
-    const idx = fs.getGroupIndex(5).?;
-    try testing.expectEqual(@as(usize, 1), idx.getNumBlocks());
-    try testing.expectEqual(@as(u64, payload.len), idx.getNumBytes());
+    const idx = fs.groupIndex(5).?;
+    try testing.expectEqual(@as(usize, 1), idx.numBlocks());
+    try testing.expectEqual(@as(u64, payload.len), idx.numBytes());
 }
 
 test "file_stream: write multiple blocks" {
@@ -83,9 +83,9 @@ test "file_stream: write multiple blocks" {
     _ = try fs.addStreamData(raw1);
     _ = try fs.addStreamData(raw2);
 
-    const idx = fs.getGroupIndex(3).?;
-    try testing.expectEqual(@as(usize, 2), idx.getNumBlocks());
-    try testing.expectEqual(@as(u64, payload1.len + payload2.len), idx.getNumBytes());
+    const idx = fs.groupIndex(3).?;
+    try testing.expectEqual(@as(usize, 2), idx.numBlocks());
+    try testing.expectEqual(@as(u64, payload1.len + payload2.len), idx.numBytes());
 }
 
 test "file_stream: write blocks to different groups" {
@@ -101,11 +101,11 @@ test "file_stream: write blocks to different groups" {
     _ = try fs.addStreamData(raw_g2);
     _ = try fs.addStreamData(raw_g7);
 
-    try testing.expectEqual(@as(u32, 2), fs.getNumGroups());
-    try testing.expectEqual(@as(u32, 7), fs.getHighestGroup());
+    try testing.expectEqual(@as(u32, 2), fs.numGroups());
+    try testing.expectEqual(@as(u32, 7), fs.highestGroup());
 
-    try testing.expectEqual(@as(usize, 1), fs.getGroupIndex(2).?.getNumBlocks());
-    try testing.expectEqual(@as(usize, 1), fs.getGroupIndex(7).?.getNumBlocks());
+    try testing.expectEqual(@as(usize, 1), fs.groupIndex(2).?.numBlocks());
+    try testing.expectEqual(@as(usize, 1), fs.groupIndex(7).?.numBlocks());
 }
 
 test "file_stream: read back written blocks" {
@@ -120,14 +120,14 @@ test "file_stream: read back written blocks" {
     _ = try fs.addStreamData(raw);
 
     // Read back through the index
-    const idx = fs.getGroupIndex(4).?;
+    const idx = fs.groupIndex(4).?;
     const entry = idx.entries.items[0];
     var blk = try fs.readBlockAt(entry.offset);
     defer blk.deinit();
 
     try testing.expectEqual(@as(u32, 4), blk.group);
     try testing.expectEqual(@as(u32, payload.len), blk.payload_size);
-    try testing.expectEqualSlices(u8, payload, blk.getPayload());
+    try testing.expectEqualSlices(u8, payload, blk.payload());
 }
 
 test "file_stream: incremental data feeding" {
@@ -145,14 +145,14 @@ test "file_stream: incremental data feeding" {
     }
 
     // Block should have been parsed and written
-    try testing.expectEqual(@as(u32, 1), fs.getNumGroups());
-    const idx = fs.getGroupIndex(2).?;
-    try testing.expectEqual(@as(usize, 1), idx.getNumBlocks());
+    try testing.expectEqual(@as(u32, 1), fs.numGroups());
+    const idx = fs.groupIndex(2).?;
+    try testing.expectEqual(@as(usize, 1), idx.numBlocks());
 
     // Verify readback
     var blk = try fs.readBlockAt(idx.entries.items[0].offset);
     defer blk.deinit();
-    try testing.expectEqualSlices(u8, payload, blk.getPayload());
+    try testing.expectEqualSlices(u8, payload, blk.payload());
 }
 
 test "file_stream: multiple blocks in single addStreamData call" {
@@ -173,17 +173,17 @@ test "file_stream: multiple blocks in single addStreamData call" {
 
     _ = try fs.addStreamData(combined);
 
-    const idx = fs.getGroupIndex(3).?;
-    try testing.expectEqual(@as(usize, 2), idx.getNumBlocks());
+    const idx = fs.groupIndex(3).?;
+    try testing.expectEqual(@as(usize, 2), idx.numBlocks());
 
     // Verify both blocks
     var blk1 = try fs.readBlockAt(idx.entries.items[0].offset);
     defer blk1.deinit();
-    try testing.expectEqualSlices(u8, "first", blk1.getPayload());
+    try testing.expectEqualSlices(u8, "first", blk1.payload());
 
     var blk2 = try fs.readBlockAt(idx.entries.items[1].offset);
     defer blk2.deinit();
-    try testing.expectEqualSlices(u8, "second", blk2.getPayload());
+    try testing.expectEqualSlices(u8, "second", blk2.payload());
 }
 
 test "file_stream: intake vtable interface" {
@@ -207,10 +207,10 @@ test "file_stream: intake vtable interface" {
     var blk = Block.Block.init(testing.allocator);
     defer blk.deinit();
     try intake.readGroupBlock(handle, 0, &blk);
-    try testing.expectEqualSlices(u8, "vtable test", blk.getPayload());
+    try testing.expectEqualSlices(u8, "vtable test", blk.payload());
 
     // Non-existent group
-    try testing.expectEqual(@as(?libsie.intake.GroupHandle, null), intake.getGroupHandle(99));
+    try testing.expectEqual(@as(?libsie.advanced.intake.GroupHandle, null), intake.getGroupHandle(99));
 }
 
 test "file_stream: writer integration roundtrip" {
@@ -240,21 +240,21 @@ test "file_stream: writer integration roundtrip" {
     try writer.writeBlock(5, &[_]u8{ 0xAA, 0xBB, 0xCC, 0xDD });
 
     // FileStream should have group 0 (XML) and group 5
-    try testing.expect(fs.getGroupIndex(0) != null);
-    try testing.expect(fs.getGroupIndex(5) != null);
+    try testing.expect(fs.groupIndex(0) != null);
+    try testing.expect(fs.groupIndex(5) != null);
 
     // Read back group-5 block
-    const idx5 = fs.getGroupIndex(5).?;
+    const idx5 = fs.groupIndex(5).?;
     var blk = try fs.readBlockAt(idx5.entries.items[0].offset);
     defer blk.deinit();
     try testing.expectEqual(@as(u32, 4), blk.payload_size);
-    try testing.expectEqualSlices(u8, &[_]u8{ 0xAA, 0xBB, 0xCC, 0xDD }, blk.getPayload());
+    try testing.expectEqualSlices(u8, &[_]u8{ 0xAA, 0xBB, 0xCC, 0xDD }, blk.payload());
 
     // Read back XML block
-    const idx0 = fs.getGroupIndex(0).?;
+    const idx0 = fs.groupIndex(0).?;
     var xml_blk = try fs.readBlockAt(idx0.entries.items[0].offset);
     defer xml_blk.deinit();
-    try testing.expectEqualStrings("<test>data</test>", xml_blk.getPayload());
+    try testing.expectEqualStrings("<test>data</test>", xml_blk.payload());
 }
 
 test "file_stream: isGroupClosed defaults to false" {
@@ -277,7 +277,7 @@ test "file_stream: empty addStreamData" {
 
     const consumed = try fs.addStreamData(&[_]u8{});
     try testing.expectEqual(@as(usize, 0), consumed);
-    try testing.expectEqual(@as(u32, 0), fs.getNumGroups());
+    try testing.expectEqual(@as(u32, 0), fs.numGroups());
 }
 
 test "file_stream: file persistence and correct offsets" {
@@ -297,8 +297,8 @@ test "file_stream: file persistence and correct offsets" {
     _ = try fs.addStreamData(raw2);
 
     // Second block should start right after the first
-    const idx2 = fs.getGroupIndex(2).?;
-    const idx3 = fs.getGroupIndex(3).?;
+    const idx2 = fs.groupIndex(2).?;
+    const idx3 = fs.groupIndex(3).?;
     try testing.expectEqual(@as(u64, 0), idx2.entries.items[0].offset);
     try testing.expectEqual(@as(u64, raw1.len), idx3.entries.items[0].offset);
 
@@ -328,11 +328,11 @@ test "file_stream: groupForEach iterates all groups" {
         group_count: u32 = 0,
         total_blocks: usize = 0,
 
-        fn callback(group_id: u32, index: *libsie.file.FileGroupIndex, extra: ?*anyopaque) void {
+        fn callback(group_id: u32, index: *libsie.advanced.file.FileGroupIndex, extra: ?*anyopaque) void {
             _ = group_id;
             const self: *@This() = @ptrCast(@alignCast(extra.?));
             self.group_count += 1;
-            self.total_blocks += index.getNumBlocks();
+            self.total_blocks += index.numBlocks();
         }
     };
 

@@ -15,13 +15,13 @@ test "regression: CAN raw file opens and has channels" {
     var sf = try SieFile.open(testing.allocator, can_file);
     defer sf.deinit();
 
-    const channels = sf.getAllChannels();
+    const channels = sf.channels();
     try testing.expect(channels.len > 0);
 
     const ch = sf.findChannel(1) orelse return error.TestUnexpectedResult;
-    try testing.expectEqualStrings("raw_can1_cx23r_ff0027", ch.getName());
+    try testing.expectEqualStrings("raw_can1_cx23r_ff0027", ch.name);
 
-    const dims = ch.getDimensions();
+    const dims = ch.dimensions();
     try testing.expectEqual(@as(usize, 2), dims.len);
     try testing.expectEqual(@as(u32, 2), dims[0].decoder_id);
     try testing.expectEqual(@as(usize, 0), dims[0].decoder_version);
@@ -35,10 +35,10 @@ test "regression: CAN raw channel tags" {
     const ch = sf.findChannel(1) orelse return error.TestUnexpectedResult;
 
     if (ch.findTag("Description")) |desc| {
-        try testing.expectEqualStrings("Raw CAN messages", desc.getString().?);
+        try testing.expectEqualStrings("Raw CAN messages", desc.string().?);
     }
     if (ch.findTag("data_type")) |dt| {
-        try testing.expectEqualStrings("message_can", dt.getString().?);
+        try testing.expectEqualStrings("message_can", dt.string().?);
     }
 }
 
@@ -46,7 +46,7 @@ test "regression: CAN raw dimension transform" {
     var sf = try SieFile.open(testing.allocator, can_file);
     defer sf.deinit();
     const ch = sf.findChannel(1) orelse return error.TestUnexpectedResult;
-    const dims = ch.getDimensions();
+    const dims = ch.dimensions();
 
     try testing.expect(dims[0].has_linear_xform);
     try testing.expectApproxEqAbs(@as(f64, 2.5e-08), dims[0].xform_scale, 1e-15);
@@ -63,6 +63,6 @@ test "regression: CAN raw file can be opened twice" {
     defer sf2.deinit();
     const ch2 = sf2.findChannel(1) orelse return error.TestUnexpectedResult;
 
-    try testing.expectEqualStrings(ch1.getName(), ch2.getName());
-    try testing.expectEqual(ch1.getDimensions().len, ch2.getDimensions().len);
+    try testing.expectEqualStrings(ch1.name, ch2.name);
+    try testing.expectEqual(ch1.dimensions().len, ch2.dimensions().len);
 }

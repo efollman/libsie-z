@@ -5,11 +5,11 @@ const std = @import("std");
 const libsie = @import("libsie");
 const testing = std.testing;
 
-const File = libsie.file.File;
-const Block = libsie.block;
-const xml_mod = libsie.xml;
-const compiler_mod = libsie.compiler;
-const decoder_mod = libsie.decoder;
+const File = libsie.File;
+const Block = libsie.advanced.block;
+const xml_mod = libsie.advanced.xml;
+const compiler_mod = libsie.advanced.compiler;
+const decoder_mod = libsie.advanced.decoder;
 
 test "functional: open SIE file, read XML, parse" {
     var file = File.init(testing.allocator, "test/data/sie_min_timhis_a_19EFAA61.sie");
@@ -23,10 +23,10 @@ test "functional: open SIE file, read XML, parse" {
     var blk = try file.readBlock();
     defer blk.deinit();
 
-    try testing.expectEqual(@as(u32, Block.SIE_XML_GROUP), blk.getGroup());
+    try testing.expectEqual(@as(u32, Block.SIE_XML_GROUP), blk.group);
 
     // First block payload should start with <?xml
-    const payload = blk.getPayload();
+    const payload = blk.payload();
     try testing.expect(payload.len > 5);
     try testing.expect(std.mem.startsWith(u8, payload, "<?xml"));
 }
@@ -37,12 +37,12 @@ test "functional: build index and count groups" {
     try file.open();
     try file.buildIndex();
 
-    const num_groups = file.getNumGroups();
+    const num_groups = file.numGroups();
     try testing.expect(num_groups >= 2);
 
     // XML group should have exactly 1 block
-    if (file.getGroupIndex(0)) |xml_idx| {
-        try testing.expect(xml_idx.getNumBlocks() >= 1);
+    if (file.groupIndex(0)) |xml_idx| {
+        try testing.expect(xml_idx.numBlocks() >= 1);
     }
 }
 
@@ -56,7 +56,7 @@ test "functional: read all blocks sequentially" {
     while (!file.isEof()) {
         var blk = file.readBlock() catch break;
         defer blk.deinit();
-        try testing.expect(blk.getPayloadSize() > 0);
+        try testing.expect(blk.payloadSize() > 0);
         count += 1;
         if (count > 1000) break; // safety limit
     }
@@ -131,7 +131,7 @@ test "functional: comprehensive file has multiple groups" {
 
     try testing.expect(try file.isSie());
 
-    const num_groups = file.getNumGroups();
+    const num_groups = file.numGroups();
     try testing.expect(num_groups >= 3);
-    try testing.expect(file.getHighestGroup() >= 2);
+    try testing.expect(file.highestGroup() >= 2);
 }

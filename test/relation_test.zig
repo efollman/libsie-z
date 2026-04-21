@@ -5,7 +5,7 @@ const std = @import("std");
 const libsie = @import("libsie");
 const testing = std.testing;
 
-const Relation = libsie.relation.Relation;
+const Relation = libsie.advanced.relation.Relation;
 
 test "relation: set get and clone" {
     // Port of test_simple — set values, get values, clone

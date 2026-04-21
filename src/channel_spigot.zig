@@ -37,7 +37,7 @@ pub const ChannelSpigot = struct {
         ch: *const channel_mod.Channel,
         compiled_decoders: *const std.AutoHashMap(i32, decoder_mod.Decoder),
     ) !ChannelSpigot {
-        const dims = ch.getDimensions();
+        const dims = ch.dimensions();
         const num_dims = dims.len;
 
         if (num_dims == 0) return error_mod.Error.InvalidData;
@@ -301,7 +301,7 @@ test "ChannelSpigot: decode channel data" {
     };
     defer sf.deinit();
 
-    const channels = sf.getAllChannels();
+    const channels = sf.channels();
     if (channels.len == 0) return;
 
     // Try to attach a spigot to the first channel

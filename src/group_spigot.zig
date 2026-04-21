@@ -34,29 +34,29 @@ pub const GroupSpigot = struct {
 
     /// Get the number of blocks in this group
     pub fn numBlocks(self: *const GroupSpigot) usize {
-        if (self.file.getGroupIndex(self.group_id)) |idx| {
-            return idx.getNumBlocks();
+        if (self.file.groupIndex(self.group_id)) |idx| {
+            return idx.numBlocks();
         }
         return 0;
     }
 
     /// Get next raw block payload. Returns null when all blocks consumed.
     pub fn get(self: *GroupSpigot) !?[]const u8 {
-        const idx = self.file.getGroupIndex(self.group_id) orelse return null;
-        if (self.entry >= idx.getNumBlocks()) return null;
+        const idx = self.file.groupIndex(self.group_id) orelse return null;
+        if (self.entry >= idx.numBlocks()) return null;
 
         // Read the block
         const file_entry = idx.entries.items[self.entry];
         var blk = try self.file.readBlockAt(@intCast(file_entry.offset));
         defer blk.deinit();
 
-        const payload = blk.getPayload();
+        const pl = blk.payload();
 
         // Free previous payload
         if (self.current_payload) |p| self.allocator.free(p);
 
         // Copy payload (block will be freed)
-        self.current_payload = try self.allocator.dupe(u8, payload);
+        self.current_payload = try self.allocator.dupe(u8, pl);
 
         self.entry += 1;
         return self.current_payload.?;
@@ -64,17 +64,17 @@ pub const GroupSpigot = struct {
 
     /// Get block at specific index
     pub fn getAt(self: *GroupSpigot, index: usize) !?[]const u8 {
-        const idx = self.file.getGroupIndex(self.group_id) orelse return null;
-        if (index >= idx.getNumBlocks()) return null;
+        const idx = self.file.groupIndex(self.group_id) orelse return null;
+        if (index >= idx.numBlocks()) return null;
 
         const file_entry = idx.entries.items[index];
         var blk = try self.file.readBlockAt(@intCast(file_entry.offset));
         defer blk.deinit();
 
-        const payload = blk.getPayload();
+        const pl = blk.payload();
 
         if (self.current_payload) |p| self.allocator.free(p);
-        self.current_payload = try self.allocator.dupe(u8, payload);
+        self.current_payload = try self.allocator.dupe(u8, pl);
         return self.current_payload.?;
     }
 

@@ -6,10 +6,10 @@
 
 const std = @import("std");
 const libsie = @import("libsie");
-const xml_mod = libsie.xml;
-const compiler_mod = libsie.compiler;
-const decoder_mod = libsie.decoder;
-const output_mod = libsie.output;
+const xml_mod = libsie.advanced.xml;
+const compiler_mod = libsie.advanced.compiler;
+const decoder_mod = libsie.advanced.decoder;
+const output_mod = libsie.advanced.output;
 
 const testing = std.testing;
 

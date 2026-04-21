@@ -6,19 +6,19 @@ const libsie = @import("libsie");
 const testing = std.testing;
 
 test "api: channel create and query" {
-    const Channel = libsie.channel.Channel;
+    const Channel = libsie.Channel;
     var ch = Channel.init(testing.allocator, 42, "TestChannel");
     defer ch.deinit();
 
-    try testing.expectEqual(@as(u32, 42), ch.getId());
-    try testing.expect(std.mem.eql(u8, "TestChannel", ch.getName()));
-    try testing.expectEqual(@as(usize, 0), ch.getNumDimensions());
+    try testing.expectEqual(@as(u32, 42), ch.id);
+    try testing.expect(std.mem.eql(u8, "TestChannel", ch.name));
+    try testing.expectEqual(@as(usize, 0), ch.dimensions().len);
 }
 
 test "api: channel with dimensions and tags" {
-    const Channel = libsie.channel.Channel;
-    const Dimension = libsie.dimension.Dimension;
-    const Tag = libsie.tag.Tag;
+    const Channel = libsie.Channel;
+    const Dimension = libsie.Dimension;
+    const Tag = libsie.Tag;
 
     var ch = Channel.init(testing.allocator, 1, "Speed");
     defer ch.deinit();
@@ -32,7 +32,7 @@ test "api: channel with dimensions and tags" {
     defer dim1.deinit();
     try ch.addDimension(dim1);
 
-    try testing.expectEqual(@as(usize, 2), ch.getNumDimensions());
+    try testing.expectEqual(@as(usize, 2), ch.dimensions().len);
 
     // Add tags
     var t1 = try Tag.initString(testing.allocator, "unit", "km/h");
@@ -42,12 +42,12 @@ test "api: channel with dimensions and tags" {
     const found = ch.findTag("unit");
     try testing.expect(found != null);
     if (found) |tag| {
-        try testing.expect(std.mem.eql(u8, "km/h", tag.getString() orelse ""));
+        try testing.expect(std.mem.eql(u8, "km/h", tag.string() orelse ""));
     }
 }
 
 test "api: output create and populate" {
-    const Output = libsie.output.Output;
+    const Output = libsie.Output;
 
     var out = try Output.init(testing.allocator, 2);
     defer out.deinit();
@@ -72,12 +72,12 @@ test "api: output create and populate" {
 
     try testing.expectEqual(@as(usize, 2), out.num_dims);
     try testing.expectEqual(@as(usize, 3), out.num_rows);
-    try testing.expectEqual(@as(f64, 2.0), out.getFloat64(0, 1).?);
-    try testing.expectEqual(@as(f64, 30.0), out.getFloat64(1, 2).?);
+    try testing.expectEqual(@as(f64, 2.0), out.float64(0, 1).?);
+    try testing.expectEqual(@as(f64, 30.0), out.float64(1, 2).?);
 }
 
 test "api: block create and validate" {
-    const block_mod = libsie.block;
+    const block_mod = libsie.advanced.block;
 
     var blk = block_mod.Block.init(testing.allocator);
     defer blk.deinit();
@@ -88,12 +88,12 @@ test "api: block create and validate" {
     // After expand, payload buffer exists but payload_size is still 0
     try testing.expectEqual(@as(u32, 0), blk.payload_size);
     blk.payload_size = 5;
-    const payload = blk.getPayloadMut();
+    const payload = blk.payloadMut();
     @memcpy(payload[0..5], "hello");
 }
 
 test "api: xml parse and query" {
-    const xml_mod = libsie.xml;
+    const xml_mod = libsie.advanced.xml;
 
     const xml_text = "<root attr=\"value\"><child>text</child></root>";
     var doc = try xml_mod.parseString(testing.allocator, xml_text);
@@ -114,9 +114,9 @@ test "api: xml parse and query" {
 }
 
 test "api: compiler compile simple decoder" {
-    const compiler_mod = libsie.compiler;
-    const decoder_mod = libsie.decoder;
-    const xml_mod = libsie.xml;
+    const compiler_mod = libsie.advanced.compiler;
+    const decoder_mod = libsie.advanced.decoder;
+    const xml_mod = libsie.advanced.xml;
 
     const xml_text = "<decoder><loop><read var=\"v0\" type=\"uint\" bits=\"8\"/><sample/></loop></decoder>";
     var doc = try xml_mod.parseString(testing.allocator, xml_text);
@@ -163,7 +163,7 @@ test "api: compiler compile simple decoder" {
 }
 
 test "api: context lifecycle" {
-    const Context = libsie.context.Context;
+    const Context = libsie.Context;
     var ctx = try Context.init(.{ .allocator = testing.allocator });
     defer ctx.deinit();
 
@@ -180,7 +180,7 @@ test "api: context lifecycle" {
 }
 
 test "api: relation create and query" {
-    const Relation = libsie.relation.Relation;
+    const Relation = libsie.advanced.relation.Relation;
 
     var rel = Relation.init(testing.allocator);
     defer rel.deinit();
@@ -194,7 +194,7 @@ test "api: relation create and query" {
 }
 
 test "api: stringtable interning" {
-    const StringTable = libsie.stringtable.StringTable;
+    const StringTable = libsie.advanced.stringtable.StringTable;
 
     var st = StringTable.init(testing.allocator);
     defer st.deinit();

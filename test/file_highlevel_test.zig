@@ -14,7 +14,7 @@ test "file: open read close via SieFile" {
     var sf = try SieFile.open(testing.allocator, test_sie_path);
     defer sf.deinit();
 
-    const channels = sf.getAllChannels();
+    const channels = sf.channels();
     try testing.expect(channels.len > 0);
 
     // Find channel 1 and read all output through spigot
@@ -35,7 +35,7 @@ test "file: get channel name" {
     defer sf.deinit();
 
     const ch = sf.findChannel(1) orelse return error.TestUnexpectedResult;
-    const name = ch.getName();
+    const name = ch.name;
     try testing.expectEqualStrings("timhis@Tri_10Hz.RN_1", name);
 }
 
@@ -48,20 +48,20 @@ test "file: get tag values" {
 
     // Channel tags
     const dm_tag = ch.findTag("DataMode") orelse return error.TestUnexpectedResult;
-    try testing.expectEqualStrings("timhis", dm_tag.getString().?);
+    try testing.expectEqualStrings("timhis", dm_tag.string().?);
 
     const desc_tag = ch.findTag("Description") orelse return error.TestUnexpectedResult;
-    try testing.expectEqualStrings("Sim FG Tri_10Hz", desc_tag.getString().?);
+    try testing.expectEqualStrings("Sim FG Tri_10Hz", desc_tag.string().?);
 
     // Nonexistent tag
     try testing.expect(ch.findTag("nonexistent") == null);
 
     // File-level tags
-    const file_tags = sf.getFileTags();
+    const file_tags = sf.fileTags();
     var found_setup_name = false;
     for (file_tags) |t| {
-        if (std.mem.eql(u8, t.getId(), "SIE:TCE_SetupName")) {
-            try testing.expectEqualStrings("sie_min_timhis_a", t.getString().?);
+        if (std.mem.eql(u8, t.key, "SIE:TCE_SetupName")) {
+            try testing.expectEqualStrings("sie_min_timhis_a", t.string().?);
             found_setup_name = true;
         }
     }
@@ -74,22 +74,22 @@ test "file: get dimensions" {
     defer sf.deinit();
 
     const ch = sf.findChannel(1) orelse return error.TestUnexpectedResult;
-    const dims = ch.getDimensions();
+    const dims = ch.dimensions();
 
     try testing.expectEqual(@as(usize, 2), dims.len);
 
     // Check dimension indices match
     for (dims, 0..) |dim, i| {
-        try testing.expectEqual(@as(u32, @intCast(i)), dim.getIndex());
+        try testing.expectEqual(@as(u32, @intCast(i)), dim.index);
 
         // getDimension by index should return same info
-        const odim = ch.getDimension(@intCast(i)) orelse return error.TestUnexpectedResult;
-        try testing.expectEqual(dim.getIndex(), odim.getIndex());
+        const odim = ch.dimension(@intCast(i)) orelse return error.TestUnexpectedResult;
+        try testing.expectEqual(dim.index, odim.index);
         try testing.expectEqual(dim.decoder_id, odim.decoder_id);
     }
 
     // Out-of-bounds dimension should be null
-    try testing.expect(ch.getDimension(2) == null);
+    try testing.expect(ch.dimension(2) == null);
 }
 
 test "file: dimension decoder and group info" {
@@ -98,7 +98,7 @@ test "file: dimension decoder and group info" {
     defer sf.deinit();
 
     const ch = sf.findChannel(1) orelse return error.TestUnexpectedResult;
-    const dims = ch.getDimensions();
+    const dims = ch.dimensions();
 
     // Both dimensions use decoder 2
     try testing.expectEqual(@as(u32, 2), dims[0].decoder_id);
@@ -119,13 +119,13 @@ test "file: dimension tags" {
     defer sf.deinit();
 
     const ch = sf.findChannel(1) orelse return error.TestUnexpectedResult;
-    const dims = ch.getDimensions();
+    const dims = ch.dimensions();
 
     // dim[0] should have SIE:units = sec
     var found_units = false;
-    for (dims[0].tags.items) |t| {
-        if (std.mem.eql(u8, t.getId(), "SIE:units")) {
-            try testing.expectEqualStrings("sec", t.getString().?);
+    for (dims[0].tags()) |t| {
+        if (std.mem.eql(u8, t.key, "SIE:units")) {
+            try testing.expectEqualStrings("sec", t.string().?);
             found_units = true;
         }
     }
@@ -133,9 +133,9 @@ test "file: dimension tags" {
 
     // dim[1] should have SIE:units = millivolts
     found_units = false;
-    for (dims[1].tags.items) |t| {
-        if (std.mem.eql(u8, t.getId(), "SIE:units")) {
-            try testing.expectEqualStrings("millivolts", t.getString().?);
+    for (dims[1].tags()) |t| {
+        if (std.mem.eql(u8, t.key, "SIE:units")) {
+            try testing.expectEqualStrings("millivolts", t.string().?);
             found_units = true;
         }
     }
@@ -147,18 +147,18 @@ test "file: two tests with one channel each" {
     var sf = try SieFile.open(testing.allocator, test_sie_path);
     defer sf.deinit();
 
-    const tests = sf.getTests();
+    const tests = sf.tests();
     try testing.expectEqual(@as(usize, 2), tests.len);
 
     // Test 0 has channel 1
-    const test0_channels = tests[0].getChannels();
+    const test0_channels = tests[0].channels();
     try testing.expectEqual(@as(usize, 1), test0_channels.len);
-    try testing.expectEqual(@as(u32, 1), test0_channels[0].getId());
+    try testing.expectEqual(@as(u32, 1), test0_channels[0].id);
 
     // Test 1 has channel 2
-    const test1_channels = tests[1].getChannels();
+    const test1_channels = tests[1].channels();
     try testing.expectEqual(@as(usize, 1), test1_channels.len);
-    try testing.expectEqual(@as(u32, 2), test1_channels[0].getId());
+    try testing.expectEqual(@as(u32, 2), test1_channels[0].id);
 }
 
 test "file: test tags" {
@@ -166,14 +166,14 @@ test "file: test tags" {
     var sf = try SieFile.open(testing.allocator, test_sie_path);
     defer sf.deinit();
 
-    const tests = sf.getTests();
+    const tests = sf.tests();
 
     // Test 0 should have StartTime, Run, etc
     const t0 = &tests[0];
     var found_run = false;
-    for (t0.getTags()) |t| {
-        if (std.mem.eql(u8, t.getId(), "Run")) {
-            try testing.expectEqualStrings("1", t.getString().?);
+    for (t0.tags()) |t| {
+        if (std.mem.eql(u8, t.key, "Run")) {
+            try testing.expectEqualStrings("1", t.string().?);
             found_run = true;
         }
     }
@@ -182,9 +182,9 @@ test "file: test tags" {
     // Test 1 should have Run = 2
     const t1 = &tests[1];
     found_run = false;
-    for (t1.getTags()) |t| {
-        if (std.mem.eql(u8, t.getId(), "Run")) {
-            try testing.expectEqualStrings("2", t.getString().?);
+    for (t1.tags()) |t| {
+        if (std.mem.eql(u8, t.key, "Run")) {
+            try testing.expectEqualStrings("2", t.string().?);
             found_run = true;
         }
     }

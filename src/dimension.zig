@@ -40,7 +40,7 @@ pub const Dimension = struct {
     xform_offset: f64 = 0.0,
 
     // Tags associated with this dimension
-    tags: std.ArrayList(tag_mod.Tag),
+    tag_list: std.ArrayList(tag_mod.Tag),
 
     /// Create a new dimension
     pub fn init(
@@ -56,16 +56,16 @@ pub const Dimension = struct {
             .index = index,
             .toplevel_group = toplevel_group,
             .group = toplevel_group,
-            .tags = .{},
+            .tag_list = .{},
         };
     }
 
     /// Clean up dimension
     pub fn deinit(self: *Dimension) void {
-        for (self.tags.items) |*t| {
+        for (self.tag_list.items) |*t| {
             t.deinit();
         }
-        self.tags.deinit(self.allocator);
+        self.tag_list.deinit(self.allocator);
 
         if (self.raw_xml_owned) {
             if (self.raw_xml) |xml| {
@@ -77,26 +77,6 @@ pub const Dimension = struct {
                 self.allocator.free(xml);
             }
         }
-    }
-
-    /// Get the dimension index
-    pub fn getIndex(self: *const Dimension) u32 {
-        return self.index;
-    }
-
-    /// Get the dimension name
-    pub fn getName(self: *const Dimension) []const u8 {
-        return self.name;
-    }
-
-    /// Get the group this dimension belongs to
-    pub fn getGroup(self: *const Dimension) u32 {
-        return self.group;
-    }
-
-    /// Get decoder ID
-    pub fn getDecoderId(self: *const Dimension) u32 {
-        return self.decoder_id;
     }
 
     /// Set decoder information
@@ -129,17 +109,17 @@ pub const Dimension = struct {
 
     /// Add a tag to this dimension
     pub fn addTag(self: *Dimension, t: tag_mod.Tag) !void {
-        try self.tags.append(self.allocator, t);
+        try self.tag_list.append(self.allocator, t);
     }
 
     /// Get all tags
-    pub fn getTags(self: *const Dimension) []const tag_mod.Tag {
-        return self.tags.items;
+    pub fn tags(self: *const Dimension) []const tag_mod.Tag {
+        return self.tag_list.items;
     }
 
     /// Find a tag by key
     pub fn findTag(self: *const Dimension, key: []const u8) ?*const tag_mod.Tag {
-        for (self.tags.items) |*t| {
+        for (self.tag_list.items) |*t| {
             if (std.mem.eql(u8, t.key, key)) return t;
         }
         return null;
@@ -148,7 +128,7 @@ pub const Dimension = struct {
     /// Format for debug output
     pub fn format(self: *const Dimension, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         try writer.print("Dimension(index={d}, name=\"{s}\", tags={d})", .{
-            self.index, self.name, self.tags.items.len,
+            self.index, self.name, self.tag_list.items.len,
         });
     }
 };
@@ -161,9 +141,9 @@ test "dimension creation" {
     var dim = Dimension.init(allocator, "Time", 0, 2);
     defer dim.deinit();
 
-    try std.testing.expectEqualSlices(u8, "Time", dim.getName());
-    try std.testing.expectEqual(@as(u32, 0), dim.getIndex());
-    try std.testing.expectEqual(@as(u32, 2), dim.getGroup());
+    try std.testing.expectEqualSlices(u8, "Time", dim.name);
+    try std.testing.expectEqual(@as(u32, 0), dim.index);
+    try std.testing.expectEqual(@as(u32, 2), dim.group);
 }
 
 test "dimension decoder and tags" {
@@ -175,15 +155,15 @@ test "dimension decoder and tags" {
     defer dim.deinit();
 
     dim.setDecoder(42, 1);
-    try std.testing.expectEqual(@as(u32, 42), dim.getDecoderId());
+    try std.testing.expectEqual(@as(u32, 42), dim.decoder_id);
 
     const t = try tag_mod.Tag.initString(allocator, "units", "mV");
     try dim.addTag(t);
 
-    try std.testing.expectEqual(@as(usize, 1), dim.getTags().len);
+    try std.testing.expectEqual(@as(usize, 1), dim.tags().len);
     const found = dim.findTag("units");
     try std.testing.expect(found != null);
-    try std.testing.expectEqualSlices(u8, "mV", found.?.getString().?);
+    try std.testing.expectEqualSlices(u8, "mV", found.?.string().?);
 }
 
 test "dimension xml" {
