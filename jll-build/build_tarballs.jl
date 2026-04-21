@@ -36,15 +36,18 @@ zig_version = "0.15.2"
 zig_sha256  = "02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239"
 zig_url     = "https://ziglang.org/download/$(zig_version)/zig-x86_64-linux-$(zig_version).tar.xz"
 
+#=
 sources = [
     GitSource(repo, tree_hash),
     ArchiveSource(zig_url, zig_sha256; unpack_target = "zig"),
 ]
+    =#
 
 # For local development, comment the GitSource block above and uncomment:
-# sources = [
-#     DirectorySource(joinpath(@__DIR__, ".."); target = "libsie-z"),
-# ]
+sources = [
+    DirectorySource(joinpath(@__DIR__, "../libsie-z"); target = "libsie-z"),
+    ArchiveSource(zig_url, zig_sha256; unpack_target = "zig"),
+]
 
 # ── Build script ───────────────────────────────────────────────────────────
 # Runs inside the BinaryBuilder sandbox. `${target}` is the BB GNU triple,
@@ -101,11 +104,10 @@ platforms = [
 ]
 
 # ── Products ───────────────────────────────────────────────────────────────
-# `LibraryProduct(:sie, :libsie)` tells BB to look for libsie.{so,dylib,dll}
-# under ${prefix}/lib (Unix) or ${prefix}/bin (Windows). The Julia side
-# accesses it as `libsie_jll.libsie`.
+# Zig emits `libsie.{so,dylib}` on Unix and `sie.dll` on Windows (no `lib`
+# prefix). BB matches the exact basename, so we list both candidates.
 products = [
-    LibraryProduct("libsie", :libsie),
+    LibraryProduct(["libsie", "sie"], :libsie),
 ]
 
 # ── Dependencies ───────────────────────────────────────────────────────────
