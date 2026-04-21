@@ -1,0 +1,16 @@
+# Project.toml — environment for running build_tarballs.jl
+#
+# Activate with:  julia --project=. -e 'using Pkg; Pkg.instantiate()'
+
+name = "libsie_jll_builder"
+uuid = "00000000-0000-0000-0000-000000000001"
+authors = ["Evan Follman"]
+version = "0.0.1"
+
+[deps]
+BinaryBuilder = "12aac903-9f7c-5d81-afc2-d9565ea332ae"
+Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
+
+[compat]
+BinaryBuilder = "0.6"
+julia = "1.9"

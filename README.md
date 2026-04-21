@@ -70,17 +70,92 @@ zig build lib
 zig build lib -Doptimize=ReleaseFast
 ```
 
-Output is placed in `zig-out/lib/`.
+Output is placed in `zig-out/lib/` (or `zig-out/bin/` for the DLL on
+Windows). The shared library exports the full C ABI declared in
+[`include/sie.h`](include/sie.h) — see [C ABI / FFI](#c-abi--ffi) below.
+
+### Cross-compiling with GNU triples
+
+The build script accepts `-Dtriple=<gnu-triple>` as a friendlier alternative
+to Zig's `-Dtarget=` for cross-compilation. The following 18 triples are
+recognized (the same set BinaryBuilder.jl uses):
+
+```
+i686-linux-gnu          x86_64-linux-gnu        aarch64-linux-gnu
+armv6l-linux-gnueabihf  armv7l-linux-gnueabihf  powerpc64le-linux-gnu
+riscv64-linux-gnu       i686-linux-musl         x86_64-linux-musl
+aarch64-linux-musl      armv6l-linux-musleabihf armv7l-linux-musleabihf
+x86_64-apple-darwin     aarch64-apple-darwin
+x86_64-unknown-freebsd  aarch64-unknown-freebsd
+i686-w64-mingw32        x86_64-w64-mingw32
+```
+
+```bash
+zig build lib -Dtriple=x86_64-linux-gnu
+zig build lib -Dtriple=x86_64-w64-mingw32
+```
+
+### C ABI / FFI
+
+`src/c_api.zig` declares ~60 `export fn`s wrapping the public Zig API for
+use from C, Julia (`ccall`), Python (`ctypes`), Rust (`bindgen`), and any
+other FFI consumer. The C header lives at [`include/sie.h`](include/sie.h)
+and is installed by the JLL packaging step (see below).
+
+Coverage:
+
+- `SieFile` — open/close, channel/test/tag enumeration and lookup.
+- `Test` / `Channel` / `Dimension` / `Tag` accessors. Strings are returned
+  as `(ptr, len)` pairs because tag values are binary-safe and may contain
+  embedded NULs.
+- `Spigot` — attach/free/get, plus `tell`/`seek`/`reset`/`is_done`,
+  `disable_transforms`, `transform_output`, `set_scan_limit`,
+  `lower_bound`, `upper_bound`.
+- `Output` — dimension type query, `get_float64`, `get_raw`.
+- `Stream` — incremental block ingest with group queries.
+- `Histogram` — build from a channel, query bins and bounds.
+- `sie_version`, `sie_status_message` for library info / error decoding.
+
+All fallible functions return `int` (0 = `SIE_OK`, non-zero = status code
+from `src/error.zig`'s `errorToStatus`). All handles are opaque pointers;
+ownership conventions are documented per function in `sie.h`.
+
+### BinaryBuilder.jl / JLL packaging
+
+`zig build jll` produces the exact directory layout BinaryBuilder.jl
+expects under `${prefix}`:
+
+```
+${prefix}/lib/libsie.so       (or bin/sie.dll on Windows)
+${prefix}/include/sie.h
+${prefix}/share/licenses/libsie-z/LICENSE
+```
+
+It defaults to `ReleaseSafe` (overridable with `-Doptimize=`). Combined
+with `-Dtriple=`, it slots directly into a BB recipe. A ready-to-run
+recipe and full instructions live in [`jll-build/`](jll-build/) — see
+[`jll-build/jll-info.md`](jll-build/jll-info.md).
+
+```bash
+zig build jll -Dtriple=x86_64-linux-gnu --prefix zig-out/prefix
+```
 
 ## Project Structure
 
 ```
-src/                    Zig library source (42 modules, 483 public functions)
+src/                    Zig library source (43 modules, 483 public functions)
+  c_api.zig             C ABI exports for FFI (Julia, Python, Rust, C, ...)
+include/
+  sie.h                 Hand-written C header matching c_api.zig
 test/                   Integration tests (21 files, 172 tests)
   data/                 Test SIE files and decoder fixtures
 examples/
   sie_dump.zig          SIE file dumper demo (verbose tutorial)
   sie_export.zig        SIE-to-ASCII exporter (metadata + channel data)
+jll-build/              BinaryBuilder.jl recipe for libsie_jll
+  build_tarballs.jl     Multi-platform JLL build recipe
+  Project.toml          Pinned BinaryBuilder env
+  jll-info.md           Library changes for JLL + build/deploy instructions
 docs/
   SIE_FORMAT.md         The SIE file format specification
   CORE_SCHEMA.md        The core metadata schema
@@ -133,6 +208,7 @@ build.zig               Build configuration
 | `spigot` | Data pipeline (vtable dispatch, binary search, scan limits) |
 | `recover` | File recovery: magic scan, block glue, 3-pass algorithm, JSON |
 | `file_stream` | Incremental SIE stream-to-file writer with group tracking |
+| `c_api` | C ABI exports (~60 `export fn`s) wrapping the public Zig surface |
 
 ## Architecture
 
