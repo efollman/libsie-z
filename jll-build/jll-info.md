@@ -131,9 +131,11 @@ sandbox instead of cloning. Useful while still developing the C API.
 After tagging a release upstream and computing the tree hash:
 
 ```bash
-# Compute the tree hash that GitSource expects:
-julia --project=. -e 'using BinaryBuilder; \
-    println(BinaryBuilder.get_tree_hash_from_remote("https://github.com/efollman/libsie-z.git", "v0.2.0"))'
+# Resolve the commit SHA1 of the tag (despite the `tree_hash` name in the
+# recipe, GitSource wants the commit hash, not the git tree hash):
+git clone --bare --filter=blob:none \
+    https://github.com/efollman/libsie-z.git /tmp/libsie-z.git
+git -C /tmp/libsie-z.git rev-list -n 1 v0.2.0
 
 # Then update LIBSIE_TREE_HASH (or the hard-coded value) and run:
 LIBSIE_VERSION=0.2.0 \

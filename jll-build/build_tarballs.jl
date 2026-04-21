@@ -26,10 +26,19 @@ version = VersionNumber(get(ENV, "LIBSIE_VERSION", "0.2.0"))
 # tagging the release upstream (BB will tell you the expected hash on first
 # run if it's wrong).
 repo      = get(ENV, "LIBSIE_REPO",      "https://github.com/efollman/libsie-z.git")
-tree_hash = get(ENV, "LIBSIE_TREE_HASH", "0000000000000000000000000000000000000000")
+tree_hash = get(ENV, "LIBSIE_TREE_HASH", "861699a44be2ff337d4c5c26cf40c82393ded8cf")
+
+# Zig itself: pulled in directly because Zig_jll lags far behind upstream.
+# The BB sandbox host is x86_64-linux-musl, so we fetch the matching Zig
+# tarball. To upgrade: bump zig_version, then update zig_sha256 to the
+# value published on https://ziglang.org/download/.
+zig_version = "0.15.2"
+zig_sha256  = "02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239"
+zig_url     = "https://ziglang.org/download/$(zig_version)/zig-x86_64-linux-$(zig_version).tar.xz"
 
 sources = [
     GitSource(repo, tree_hash),
+    ArchiveSource(zig_url, zig_sha256; unpack_target = "zig"),
 ]
 
 # For local development, comment the GitSource block above and uncomment:
@@ -41,6 +50,10 @@ sources = [
 # Runs inside the BinaryBuilder sandbox. `${target}` is the BB GNU triple,
 # which `build.zig` translates to a Zig target via `-Dtriple=`.
 script = raw"""
+# Put the Zig toolchain (extracted from the ArchiveSource above) on PATH.
+# The tarball unpacks to $WORKSPACE/srcdir/zig/zig-*-<version>/zig.
+export PATH=$(echo $WORKSPACE/srcdir/zig/zig-*):$PATH
+
 cd $WORKSPACE/srcdir/libsie-z*
 
 # Zig's own cache lives under $HOME inside the sandbox.
@@ -96,8 +109,10 @@ products = [
 ]
 
 # ── Dependencies ───────────────────────────────────────────────────────────
-# libsie has no third-party runtime dependencies — only libc.
-dependencies = HostBuildDependency[]
+# libsie has no third-party runtime dependencies — only libc. The Zig
+# toolchain is provided via the ArchiveSource above, not Zig_jll, because
+# Zig_jll lags upstream.
+dependencies = BinaryBuilder.AbstractDependency[]
 
 # ── Build ──────────────────────────────────────────────────────────────────
 # `julia_compat` is the JLL-side Julia version constraint, not a build

@@ -216,7 +216,14 @@ fn translateGnuTriple(triple: []const u8) std.Target.Query {
     };
 
     for (table) |m| {
-        if (std.mem.eql(u8, m.gnu, triple)) {
+        // Accept either an exact match or the table key followed by an OS
+        // version suffix (e.g. BinaryBuilder passes `aarch64-apple-darwin20`
+        // and `x86_64-unknown-freebsd14.1`).
+        const matches = std.mem.eql(u8, m.gnu, triple) or
+            (std.mem.startsWith(u8, triple, m.gnu) and
+                triple.len > m.gnu.len and
+                (std.ascii.isDigit(triple[m.gnu.len]) or triple[m.gnu.len] == '.'));
+        if (matches) {
             const query = std.Target.Query.parse(.{
                 .arch_os_abi = m.zig,
                 .cpu_features = m.cpu orelse "baseline",
