@@ -22,15 +22,6 @@ pub fn trim(str: []const u8) []const u8 {
     return std.mem.trim(u8, str, " \t\n\r");
 }
 
-/// Split string by delimiter
-pub fn split(allocator: std.mem.Allocator, str: []const u8, delimiter: u8) ![][]const u8 {
-    _ = allocator;
-    _ = str;
-    _ = delimiter;
-    // TODO: Implement string splitting
-    return &[0][]const u8{};
-}
-
 /// Find substring in string
 pub fn indexOf(haystack: []const u8, needle: []const u8) ?usize {
     return std.mem.indexOf(u8, haystack, needle);

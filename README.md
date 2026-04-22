@@ -6,28 +6,6 @@ A complete rewrite of [libsie](https://github.com/efollman/libsie-reference) (SI
 
 **Author:** Evan Follman | **322 tests passing** | Zig 0.15.x | Zero dependencies
 
-## AI-Assisted Development
-
-This port was largely written with the assistance of AI (Claude Opus 4.6). While
-the resulting code passes a comprehensive test suite (322 tests covering all
-modules), users should be aware of potential issues inherent to AI-assisted code
-generation:
-
-- **Subtle logic errors** — AI-generated code may contain edge-case bugs that
-  are not covered by the existing test suite, particularly in rarely-exercised
-  code paths.
-- **Semantic drift** — The Zig implementation may deviate from the original C
-  library's behavior in ways that are not immediately obvious, especially
-  around undefined behavior, numeric overflow, or platform-specific details.
-- **Incomplete understanding** — The AI may have misinterpreted the intent of
-  the original C code in cases where the logic was complex or poorly
-  documented, leading to functionally different behavior.
-- **Documentation accuracy** — Ported documentation and code comments may
-  contain inaccuracies introduced during the translation process.
-
-All AI-generated code was reviewed and tested, but additional scrutiny is
-recommended for production use. Bug reports and contributions are welcome.
-
 ## Building
 
 ```bash
