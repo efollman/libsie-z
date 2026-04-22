@@ -45,7 +45,7 @@ sources = [
 
 # For local development, comment the GitSource block above and uncomment:
 sources = [
-    DirectorySource(joinpath(@__DIR__, "../libsie-z"); target = "libsie-z"),
+    DirectorySource(joinpath(@__DIR__, ".."); target = "libsie-z"),
     ArchiveSource(zig_url, zig_sha256; unpack_target = "zig"),
 ]
 
