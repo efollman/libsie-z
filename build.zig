@@ -126,33 +126,24 @@ pub fn build(b: *std.Build) void {
     const run_main_tests = b.addRunArtifact(main_tests);
     test_step.dependOn(&run_main_tests.step);
 
-    // Integration tests from test/
-    const integration_test_files = [_][]const u8{
-        "test/decoder_test.zig",
-        "test/file_test.zig",
-        "test/api_test.zig",
-        "test/functional_test.zig",
-        "test/spigot_test.zig",
-        "test/file_highlevel_test.zig",
-        "test/functional_dump_test.zig",
-        "test/spigot_data_test.zig",
-        "test/regression_test.zig",
-        "test/histogram_test.zig",
-        "test/output_test.zig",
-        "test/xml_test.zig",
-        "test/object_test.zig",
-        "test/stringtable_test.zig",
-        "test/relation_test.zig",
-        "test/id_map_test.zig",
-        "test/context_test.zig",
-        "test/xml_merge_test.zig",
-        "test/sifter_test.zig",
-        "test/file_stream_test.zig",
+    // Integration tests from test/ — discovered automatically so adding a
+    // new test_*.zig file under test/ does not require touching build.zig.
+    var test_dir = std.fs.cwd().openDir("test", .{ .iterate = true }) catch |err| {
+        std.debug.panic("failed to open test/ directory: {s}", .{@errorName(err)});
     };
+    defer test_dir.close();
 
-    for (integration_test_files) |test_file| {
+    var it = test_dir.iterate();
+    while (it.next() catch |err| std.debug.panic(
+        "failed to iterate test/: {s}",
+        .{@errorName(err)},
+    )) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, "_test.zig")) continue;
+
+        const test_path = b.fmt("test/{s}", .{entry.name});
         const test_mod = b.createModule(.{
-            .root_source_file = b.path(test_file),
+            .root_source_file = b.path(test_path),
             .target = target,
             .imports = &.{
                 .{ .name = "libsie", .module = libsie_mod },

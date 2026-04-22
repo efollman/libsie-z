@@ -32,7 +32,6 @@ pub const Error = error{
     InvalidData,
     DimensionMismatch,
     IndexOutOfBounds,
-    SizeMismatch,
 
     // Operation errors
     NotImplemented,

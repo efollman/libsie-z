@@ -49,7 +49,6 @@ pub const advanced = struct {
     pub const types = @import("types.zig");
     pub const config = @import("config.zig");
     pub const byteswap = @import("byteswap.zig");
-    pub const vec = @import("vec.zig");
     pub const stringtable = @import("stringtable.zig");
     pub const uthash = @import("uthash.zig");
     pub const utils = @import("utils.zig");

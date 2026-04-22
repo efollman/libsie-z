@@ -52,12 +52,17 @@ pub const XmlDefinition = struct {
             .test_map = std.AutoHashMap(i32, *Node).init(allocator),
             .decoder_map = std.AutoHashMap(i32, *Node).init(allocator),
         };
+        // NOTE: callback_data is set to a placeholder here because `self` is
+        // about to be returned by value (the address of this local would be
+        // dangling). `addString` re-binds callback_data to the real `self`
+        // pointer before every parse call, so this initial value is never
+        // dereferenced.
         self.parser = xml_mod.IncrementalParser.init(
             allocator,
             parserStarted,
             parserText,
             parserComplete,
-            @ptrCast(&self),
+            undefined,
         );
         return self;
     }

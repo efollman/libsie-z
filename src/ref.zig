@@ -30,12 +30,18 @@ pub const Ref = struct {
     }
 
     pub fn retain(self: *Ref) *Ref {
-        _ = self.ref_count.fetchAdd(1, .release);
+        // .monotonic is sufficient for retain: we only need atomicity of the
+        // increment, not synchronization with other memory.
+        _ = self.ref_count.fetchAdd(1, .monotonic);
         return self;
     }
 
+    /// Decrements the reference count and returns the *previous* value.
+    /// Callers should treat a return value of 1 as "this was the last
+    /// reference" and proceed to destroy the object. .acq_rel ensures the
+    /// destroying thread sees all prior writes from other releasing threads.
     pub fn release(self: *Ref) u32 {
-        return self.ref_count.fetchSub(1, .release);
+        return self.ref_count.fetchSub(1, .acq_rel);
     }
 
     pub fn refCount(self: *const Ref) u32 {
