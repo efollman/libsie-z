@@ -123,7 +123,7 @@ zig build jll -Dtriple=x86_64-linux-gnu --prefix zig-out/prefix
 ## Project Structure
 
 ```
-src/                    Zig library source (43 modules, 483 public functions)
+src/                    Zig library source (42 modules, 483 public functions)
   c_api.zig             C ABI exports for FFI (Julia, Python, Rust, C, ...)
 include/
   sie.h                 Hand-written C header matching c_api.zig
@@ -170,7 +170,6 @@ build.zig               Build configuration
 | `dimension` | Axis metadata (decoder, transforms) |
 | `tag` | Key-value metadata (string/binary) |
 | `group` | Block group tracking |
-| `vec` | ArrayList alias |
 | `parser` | Parsing utilities (tag names, quoted strings, numbers) |
 | `xml` | XML DOM tree, incremental parser, serialization |
 | `xml_merge` | XML definition builder, merge engine, base expansion |

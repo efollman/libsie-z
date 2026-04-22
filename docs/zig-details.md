@@ -11,7 +11,7 @@ Ported from C (with autotools + APR) to pure Zig in 6 phases, ~7,800 lines acros
 | Phase | Scope | Tests | Modules |
 |-------|-------|-------|---------|
 | 1 | Foundation types and utilities | 15 | types, config, byteswap, error, ref, utils, stringtable, uthash |
-| 2 | Object system, binary I/O, context | 41 | context, object, block, file, stream, intake, channel, test, dimension, tag, group, vec, parser, spigot (partial) |
+| 2 | Object system, binary I/O, context | 41 | context, object, block, file, stream, intake, channel, test, dimension, tag, group, parser, spigot (partial) |
 | 3 | XML DOM, parser, merge engine, output | 29 | xml, xml_merge, output, relation, iterator |
 | 4 | Bytecode decoder VM, transforms, histogram | 20 | decoder, combiner, transform, histogram |
 | 5 | Writer, compiler, sifter, recovery | 32 | writer, plot_crusher, compiler, sifter, spigot (complete), recover |
@@ -53,7 +53,7 @@ Ported from C (with autotools + APR) to pure Zig in 6 phases, ~7,800 lines acros
 | `test.c` | `test.zig` | |
 | `transform.c` | `transform.zig` | |
 | `utils.c` | `utils.zig` | |
-| `vec.c` | `vec.zig` | Replaced with std.ArrayList |
+| `vec.c` | — | Replaced with `std.ArrayList`; no Zig file needed |
 | `writer.c` | `writer.zig` | |
 | `xml.c` | `xml.zig` | |
 | `xml_merge.c` | `xml_merge.zig` | |
@@ -133,6 +133,33 @@ The C library uses `setjmp`/`longjmp` with `SIE_TRY`/`SIE_CATCH`/`SIE_FINALLY` m
 8. **Lazy XML/dimension expansion** — Eager approach only loads small XML metadata (~KB). Multi-GB binary data is read on-demand through spigots. No performance concern.
 
 9. **`dump()` debug methods** — `std.fmt.Formatter` integration is idiomatic and sufficient.
+
+### Post-port audit (v0.2.0)
+
+A follow-up audit applied these correctness and hygiene fixes:
+
+- **`ref.zig` atomic ordering** — `Ref.retain()` now uses `.monotonic` (no
+  cross-thread ordering needed for the increment), and `Ref.release()` now
+  uses `.acq_rel` so the thread that observes a `previous == 1` return value
+  and proceeds to destroy the object sees all writes from other threads that
+  released their references. Previously both used `.release`, which gave
+  insufficient ordering on the destroying thread.
+- **`error.zig`** — Removed the unused `Error.SizeMismatch` variant. It was
+  defined in the error set but never raised anywhere in the codebase and had
+  no entry in `errorToStatus`, so it would have surfaced as
+  `SIE_E_UNKNOWN (99)` if it had ever been used.
+- **`xml_merge.zig`** — `XmlDefinition.init()` previously stored
+  `@ptrCast(&self)` into `parser.callback_data`, capturing the address of a
+  local that becomes invalid the moment `init` returns the struct by value.
+  `addString()` rebinds `callback_data` to the real `self` pointer before
+  every parse, so the initial value is now `undefined` with a comment
+  explaining why.
+- **`vec.zig` removed** — The 7-line `Vec(T) = std.ArrayList(T)` alias had
+  zero callers; deleted along with its `advanced.vec` re-export in
+  `root.zig`.
+- **`build.zig`** — Integration tests are now discovered by iterating
+  `test/*_test.zig` instead of a hand-maintained 20-entry list. New test
+  files are picked up automatically.
 
 ---
 
