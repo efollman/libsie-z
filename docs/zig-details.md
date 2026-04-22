@@ -164,6 +164,64 @@ Excluded C tests are null-safety checks (`test_null_*`, `test_*_null_*`) not app
 
 ---
 
+## C ABI and JLL packaging
+
+The library exposes a C ABI for FFI consumers (Julia `ccall`, Python `ctypes`,
+Rust `bindgen`, plain C, ...) on top of the native Zig API.
+
+### Surface
+
+- [`src/c_api.zig`](../src/c_api.zig) — ~60 `export fn`s wrapping `SieFile`,
+  `Test`, `Channel`, `Dimension`, `Tag`, `ChannelSpigot`, `Output`, `Stream`,
+  and `Histogram`.
+- [`include/sie.h`](../include/sie.h) — hand-written C header with opaque
+  typedefs, `SIE_E_*` status constants, `SIE_OUTPUT_*` type constants, and
+  prototypes for every export.
+
+Conventions:
+
+- Handles are opaque pointers. Owned vs borrowed lifetimes are documented
+  per function in `sie.h`.
+- Fallible functions return `int` (`SIE_OK = 0`); status codes mirror
+  `error.zig`'s `errorToStatus` mapping.
+- Strings use `(out_ptr, out_len)` out-params — binary-safe for tag values
+  and correct for non-NUL-terminated XML-derived strings.
+- All allocations go through `std.heap.c_allocator`, so library modules are
+  compiled with `link_libc = true`.
+
+The C ABI symbols are emitted into every shared library produced from
+`src/root.zig` via:
+
+```zig
+pub const c_api = @import("c_api.zig");
+comptime {
+    _ = c_api;
+    @import("std").testing.refAllDecls(c_api);
+}
+```
+
+Without this, Zig would strip unreferenced `export fn`s when building the
+shared object.
+
+### Build options
+
+- `-Dtriple=<gnu-triple>` — cross-compile using a GNU-style target triple
+  (translated to a Zig target query by `translateGnuTriple()` in
+  [`build.zig`](../build.zig)). 18 BinaryBuilder-supported triples are
+  recognized; see the README.
+- `zig build jll` — produces the BinaryBuilder.jl layout under `${prefix}`:
+  shared library in libdir, `include/sie.h`, and
+  `share/licenses/libsie-z/LICENSE`. Defaults to `ReleaseSafe`.
+
+### JLL recipe
+
+[`jll-build/`](../jll-build/) contains a ready-to-run `build_tarballs.jl`
+recipe and `Project.toml`. See [`jll-build/jll-info.md`](../jll-build/jll-info.md)
+for full build/deploy instructions and a per-change rationale of the
+library-side modifications that made JLL packaging possible.
+
+---
+
 ## Key Design Decisions
 
 - C opaque pointers → Zig structs with proper types

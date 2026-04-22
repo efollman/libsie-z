@@ -35,6 +35,12 @@ const Output = libsie.Output;
 // ... etc.
 ```
 
+> **C / FFI consumers:** the library also exposes a stable C ABI in
+> [`src/c_api.zig`](../src/c_api.zig), declared in
+> [`include/sie.h`](../include/sie.h). All `sie_*` functions follow the
+> conventions described there (opaque handles, `int` status codes,
+> `(ptr, len)` strings). See the project README's *C ABI / FFI* section.
+
 The basic metadata structure of an SIE file:
 
 ```

@@ -3,6 +3,16 @@
 
 pub const version = "1.1.6";
 
+// Pull in the C ABI surface so that `export fn` symbols defined there are
+// linked into the shared library. The `comptime` reference forces Zig to
+// analyze every declaration in c_api.zig, which is what causes the
+// `export fn` symbols to actually be emitted into the object file.
+pub const c_api = @import("c_api.zig");
+comptime {
+    _ = c_api;
+    @import("std").testing.refAllDecls(c_api);
+}
+
 // ── Stable Public API ──────────────────────────────────────────
 //
 // These are the recommended types for reading SIE files. They form
