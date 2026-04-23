@@ -340,7 +340,7 @@ pub const Sifter = struct {
             var block_idx = entry.value_ptr.start_block;
 
             while (block_idx < end) : (block_idx += 1) {
-                const file_entry = group_idx.entries.items[block_idx];
+                const file_entry = group_idx.entries.items[@as(usize, @intCast(block_idx))];
                 var blk = try file.readBlockAt(@intCast(file_entry.offset));
                 defer blk.deinit();
                 try self.writer.writeBlock(new_group, blk.payload());

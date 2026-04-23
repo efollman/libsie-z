@@ -188,7 +188,7 @@ pub fn recover(allocator: std.mem.Allocator, path: []const u8, mod: u64) !Recove
         return RecoverResult{ .parts = .{}, .glue_entries = .{} };
     }
 
-    const data = try allocator.alloc(u8, file_size);
+    const data = try allocator.alloc(u8, @as(usize, @intCast(file_size)));
     defer allocator.free(data);
     const n = try file_handle.readAll(data);
     if (n != file_size) {
