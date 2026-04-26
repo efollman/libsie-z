@@ -1,16 +1,41 @@
 # SPDX-License-Identifier: MIT
 #
 # BinaryBuilder.jl recipe for libsie_jll.
+#
+# Usage (interactive build for one platform, no deploy):
+#   julia --project=. build_tarballs.jl --verbose --debug x86_64-linux-gnu
+#
+# Usage (build all supported platforms and deploy to a JLL repo on GitHub):
+#   julia --project=. build_tarballs.jl --verbose --deploy="JuliaBinaryWrappers/libsie_jll.jl"
+#
+# Before first run:
+#   julia --project=. -e 'using Pkg; Pkg.instantiate()'
+#
+# This recipe expects a tagged release on the upstream Git repository (set
+# `LIBSIE_REPO` and `LIBSIE_VERSION` below, or override via env vars).
+# For local iteration against a working tree, point `sources` at a
+# `DirectorySource` instead — see commented block below.
+
 using Pkg
+Pkg.activate(@__DIR__)
+Pkg.instantiate()
+
 using BinaryBuilder
 
-#library
 name    = "libsie"
-version = v"0.3.3"
-repo      = "https://github.com/efollman/libsie-z.git"
-tree_hash = "e2bb07b919fbb2767d91e61fed787c7de381f81a"
+version = VersionNumber(get(ENV, "LIBSIE_VERSION", "0.0.0"))
 
-# zig tarball
+# ── Sources ────────────────────────────────────────────────────────────────
+# Production: pull a tagged tarball from GitHub. Replace `tree_hash` after
+# tagging the release upstream (BB will tell you the expected hash on first
+# run if it's wrong).
+repo      = get(ENV, "LIBSIE_REPO",      "https://github.com/efollman/libsie-z.git")
+tree_hash = get(ENV, "LIBSIE_TREE_HASH", "0")
+
+# Zig itself: pulled in directly because Zig_jll lags far behind upstream.
+# The BB sandbox host is x86_64-linux-musl, so we fetch the matching Zig
+# tarball. To upgrade: bump zig_version, then update zig_sha256 to the
+# value published on https://ziglang.org/download/.
 zig_version = "0.15.2"
 zig_sha256  = "02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239"
 zig_url     = "https://ziglang.org/download/$(zig_version)/zig-x86_64-linux-$(zig_version).tar.xz"
@@ -20,6 +45,13 @@ sources = [
     ArchiveSource(zig_url, zig_sha256; unpack_target = "zig"),
 ]
 
+# For local development, comment the GitSource block above and uncomment:
+#=
+sources = [
+    DirectorySource(joinpath(@__DIR__, ".."); target = "libsie-z"),
+    ArchiveSource(zig_url, zig_sha256; unpack_target = "zig"),
+]
+=#
 
 # ── Build script ───────────────────────────────────────────────────────────
 # Runs inside the BinaryBuilder sandbox. `${target}` is the BB GNU triple,
@@ -43,7 +75,8 @@ install_license LICENSE
 """
 
 # ── Platforms ──────────────────────────────────────────────────────────────
-# All BinaryBuilder-supported platforms 
+# All BinaryBuilder-supported platforms whose GNU triple our build.zig knows
+# how to translate. Trim this list if you want to ship fewer artifacts.
 platforms = [
     # Linux glibc
     Platform("i686",    "linux"; libc="glibc"),
@@ -78,12 +111,13 @@ platforms = [
 # Zig emits `libsie.{so,dylib}` on Unix and `sie.dll` on Windows (no `lib`
 # prefix). BB matches the exact basename, so we list both candidates.
 products = [
-    LibraryProduct(["libsie", "sie"], :libsiez),
+    LibraryProduct(["libsie", "sie"], :libsie),
 ]
 
 # ── Dependencies ───────────────────────────────────────────────────────────
 # libsie has no third-party runtime dependencies — only libc. The Zig
-# toolchain is provided via the ArchiveSource above
+# toolchain is provided via the ArchiveSource above, not Zig_jll, because
+# Zig_jll lags upstream.
 dependencies = BinaryBuilder.AbstractDependency[]
 
 # ── Build ──────────────────────────────────────────────────────────────────
