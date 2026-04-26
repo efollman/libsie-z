@@ -1,14 +1,11 @@
-# SPDX-License-Identifier: MIT
-#
-# BinaryBuilder.jl recipe for libsie_jll.
-using Pkg
+# BinaryBuilder.jl recipe for libsie_z_jll.
 using BinaryBuilder
 
 #library
-name    = "libsie"
+name    = "libsie_z"
 version = v"0.3.3"
 repo      = "https://github.com/efollman/libsie-z.git"
-tree_hash = "e2bb07b919fbb2767d91e61fed787c7de381f81a"
+tree_hash = "76034b20049e95da6a0380bc2d6c2634d227781c"
 
 # zig tarball
 zig_version = "0.15.2"
@@ -78,7 +75,7 @@ platforms = [
 # Zig emits `libsie.{so,dylib}` on Unix and `sie.dll` on Windows (no `lib`
 # prefix). BB matches the exact basename, so we list both candidates.
 products = [
-    LibraryProduct(["libsie", "sie"], :libsiez),
+    LibraryProduct(["libsie", "sie"], :libsie_z),
 ]
 
 # ── Dependencies ───────────────────────────────────────────────────────────
