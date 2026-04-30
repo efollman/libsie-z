@@ -17,8 +17,7 @@ sources = [
     ArchiveSource(zig_url, zig_sha256; unpack_target = "zig"),
 ]
 
-
-# ── Build script ───────────────────────────────────────────────────────────
+# Build script
 # Runs inside the BinaryBuilder sandbox. `${target}` is the BB GNU triple,
 # which `build.zig` translates to a Zig target via `-Dtriple=`.
 script = raw"""
@@ -39,53 +38,23 @@ zig build jll \
 install_license LICENSE
 """
 
-# ── Platforms ──────────────────────────────────────────────────────────────
+# Platforms
 # All BinaryBuilder-supported platforms 
-platforms = [
-    # Linux glibc
-    Platform("i686",    "linux"; libc="glibc"),
-    Platform("x86_64",  "linux"; libc="glibc"),
-    Platform("aarch64", "linux"; libc="glibc"),
-    Platform("armv6l",  "linux"; libc="glibc", call_abi="eabihf"),
-    Platform("armv7l",  "linux"; libc="glibc", call_abi="eabihf"),
-    Platform("powerpc64le", "linux"; libc="glibc"),
-    Platform("riscv64", "linux"; libc="glibc"),
+platforms = supported_platforms()
 
-    # Linux musl
-    Platform("i686",    "linux"; libc="musl"),
-    Platform("x86_64",  "linux"; libc="musl"),
-    Platform("aarch64", "linux"; libc="musl"),
-    Platform("armv6l",  "linux"; libc="musl", call_abi="eabihf"),
-    Platform("armv7l",  "linux"; libc="musl", call_abi="eabihf"),
-
-    # macOS
-    Platform("x86_64",  "macos"),
-    Platform("aarch64", "macos"),
-
-    # FreeBSD
-    Platform("x86_64",  "freebsd"),
-    Platform("aarch64", "freebsd"),
-
-    # Windows
-    Platform("i686",    "windows"),
-    Platform("x86_64",  "windows"),
-]
-
-# ── Products ───────────────────────────────────────────────────────────────
+# Products
 # Zig emits `libsie.{so,dylib}` on Unix and `sie.dll` on Windows (no `lib`
 # prefix). BB matches the exact basename, so we list both candidates.
 products = [
     LibraryProduct(["libsie", "sie"], :libsie_z),
 ]
 
-# ── Dependencies ───────────────────────────────────────────────────────────
+# Dependencies
 # libsie has no third-party runtime dependencies — only libc. The Zig
 # toolchain is provided via the ArchiveSource above
 dependencies = BinaryBuilder.AbstractDependency[]
 
-# ── Build ──────────────────────────────────────────────────────────────────
-# `julia_compat` is the JLL-side Julia version constraint, not a build
-# requirement. Bump as needed.
+# Build
 build_tarballs(
     ARGS, name, version, sources, script, platforms, products, dependencies;
     julia_compat   = "1.9",
